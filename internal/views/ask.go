@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/imankhadiv/f9s/internal/ai"
 	"github.com/imankhadiv/f9s/internal/analyze"
@@ -52,7 +53,17 @@ type AskView struct {
 	anon     bool
 
 	vp    viewport.Model
+	wrapW int // viewport width, for wrapping answer paragraphs
 	ready bool
+}
+
+// wrap reflows a paragraph to the transcript width so long AI answers don't
+// run off the right edge (the viewport clips rather than wraps).
+func (v *AskView) wrap(s string) string {
+	if v.wrapW <= 0 {
+		return s
+	}
+	return lipgloss.NewStyle().Width(v.wrapW).Render(s)
 }
 
 // NewAskView builds the chat. Pass jid/name to scope it to one job; pass
@@ -179,6 +190,9 @@ func (v *AskView) ask(question string) tea.Cmd {
 				ch <- agentEvent{kind: "step", text: line}
 			},
 			func(p ai.Proposal) {
+				if v.anon {
+					p.Args = restoreArgs(v.scrubber, p.Args)
+				}
 				lg.Line(fmt.Sprintf("PROPOSAL: %s %v", p.Tool, p.Args))
 				ch <- agentEvent{kind: "propose", proposal: p}
 			})
@@ -348,11 +362,11 @@ func (v *AskView) content() string {
 	for _, t := range v.turns {
 		switch t.who {
 		case "you":
-			b.WriteString("\n" + styles.ViewTitle().Render("You") + "  " + t.text + "\n")
+			b.WriteString("\n" + styles.ViewTitle().Render("You") + "  " + v.wrap(t.text) + "\n")
 		case "ai":
-			b.WriteString("\n" + styles.OKText().Render("AI ("+v.provider+")") + "\n" + t.text + "\n")
+			b.WriteString("\n" + styles.OKText().Render("AI ("+v.provider+")") + "\n" + v.wrap(t.text) + "\n")
 		case "err":
-			b.WriteString("\n" + styles.ErrText().Render("⚠ "+t.text) + "\n")
+			b.WriteString("\n" + styles.ErrText().Render(v.wrap("⚠ "+t.text)) + "\n")
 		}
 	}
 	if v.busy {
@@ -391,6 +405,7 @@ func (v *AskView) View(width, height int) string {
 	}
 	v.vp.Width = width
 	v.vp.Height = bodyH
+	v.wrapW = width
 	v.vp.SetContent(v.content())
 
 	prompt := "> " + v.input.View()

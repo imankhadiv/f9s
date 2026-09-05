@@ -24,7 +24,8 @@ The dashboard is fine at watching one job. Operating is a different sport:
 | Completed-job postmortems | separate History Server UI in a browser | ✓ `:history`, same keybindings |
 | SQL console | ✗ | ✓ `Q` via SQL Gateway |
 | Kubernetes operator awareness | ✗ | ✓ `K` FlinkDeployments |
-| AI diagnosis | ✗ | ✓ `a`, local-first, anonymized |
+| AI diagnosis & chat | ✗ | ✓ explain `a`, investigate `A`, ask `@` — local-first, anonymized |
+| AI-suggested actions | ✗ | ✓ proposed, never auto-run — you confirm inline |
 | Agent access | ✗ | ✓ `f9s mcp` |
 | Extensible | rebuild the Angular app | ✓ `plugins.yaml` |
 
@@ -81,6 +82,7 @@ retrying with backoff until the cluster answers.
 | `C` | contexts fleet view (enter → switch cluster) |
 | `a` | AI explain: diagnose the selected job (see below) |
 | `A` | agentic investigate: the model drills deeper with read-only tools, every call shown |
+| `@` | ask AI: free-form chat about the job (or `:ask` cluster-wide) — starter questions, and it can propose actions you approve inline |
 | `b` | backpressure history sparklines (in job detail) |
 | `g` | ASCII execution DAG with live busy/backpressure per node (in job detail) |
 | `t` | per-vertex subtask table: attempts, TaskManager, lifecycle durations; enter shows retained attempt history (in job detail) |
@@ -101,13 +103,40 @@ retrying with backoff until the cluster answers.
 | `?` | help |
 | `q` | quit |
 
-## AI explain
+## AI: explain, investigate, and ask
 
-Press `a` on a job and f9s gathers a small evidence bundle (checkpoint
-history, backpressure, computed bottleneck, exceptions), anonymizes it
-(job names, hosts, storage paths → placeholders), sends it to *your* model,
-and renders the diagnosis with the evidence underneath so you can verify the
-work. Suggestions are text — f9s never executes anything a model says.
+Three ways in, all driven by *your* model (local-first via Ollama, or any
+OpenAI-compatible / Anthropic endpoint):
+
+- **`a` — explain**: a one-shot diagnosis. f9s gathers a small evidence bundle
+  (checkpoint history, backpressure, computed bottleneck, exceptions), anonymizes
+  it (job names, hosts, storage paths → placeholders), sends it to your model,
+  and renders the diagnosis with the evidence underneath so you can verify it.
+- **`A` — investigate**: the model drills deeper with read-only tools, every
+  call shown live — the audit trail *is* the UI.
+- **`@` — ask** (`:ask` for cluster-wide): a free-form, multi-turn chat. An
+  empty chat offers tappable starter questions; ask a follow-up and the model
+  answers, grounding itself in the job's evidence and calling read-only tools
+  as needed.
+
+An empty chat suggests where to start:
+
+![AI ask — starter questions](vhs/ai-ask-starters.png)
+
+Ask a real question and get a grounded answer:
+
+![AI ask — diagnosis](vhs/ai-ask-answer.png)
+
+**Nothing runs without you.** When the model wants a mutating action
+(savepoint, stop, cancel) it *proposes* — it never executes. Approve it inline
+with one keystroke, and f9s shows the exact call for a final confirmation
+before anything happens:
+
+![AI proposes an action](vhs/ai-propose.png)
+![Human-in-the-loop confirmation](vhs/ai-propose-confirm.png)
+
+Every action taken this way lands in the audit log (`~/.local/share/f9s/audit/`),
+and a `readOnly` context refuses AI proposals outright.
 
 ```yaml
 contexts:

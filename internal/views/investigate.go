@@ -106,6 +106,9 @@ func (v *Investigate) Init() tea.Cmd {
 				ch <- agentEvent{kind: "step", text: line}
 			},
 			func(p ai.Proposal) {
+				if anonymize {
+					p.Args = restoreArgs(scrubber, p.Args)
+				}
 				lg.Line(fmt.Sprintf("PROPOSAL: %s %v", p.Tool, p.Args))
 				ch <- agentEvent{kind: "propose", proposal: p}
 			})

@@ -1,0 +1,15 @@
+# Config used only for rendering the AI demo tapes (vhs/ai-*.tape).
+# Anonymization is off so the recording shows real job names and ids — on a
+# local Ollama endpoint nothing leaves the machine anyway. In production keep
+# the default (anonymize on) when using a remote provider.
+currentContext: local
+refreshRate: 2
+contexts:
+  local:
+    url: http://localhost:8081
+    ai:
+      policy: allow
+      provider: ollama
+      model: gemma4:12b
+      url: http://localhost:11434
+      anonymize: false

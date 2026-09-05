@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/imankhadiv/f9s/internal/ai"
+	"github.com/imankhadiv/f9s/internal/analyze"
 	"github.com/imankhadiv/f9s/internal/client"
 	"github.com/imankhadiv/f9s/internal/config"
 	"github.com/imankhadiv/f9s/internal/plugin"
@@ -168,6 +169,20 @@ func investigateJob(deps Deps, jid, name string) tea.Cmd {
 		return flash("provider " + provider.Name() + " does not support agentic investigation")
 	}
 	return push(NewInvestigate(deps, jid, name, agent, provider.Name()))
+}
+
+// restoreArgs de-anonymizes a proposal's arguments before they reach the
+// executor. The model works on scrubbed text, so an arg it echoes (a jid, a
+// savepoint path) can carry a placeholder; execution needs the real value.
+func restoreArgs(sc *analyze.Scrubber, args map[string]string) map[string]string {
+	if sc == nil {
+		return args
+	}
+	out := make(map[string]string, len(args))
+	for k, v := range args {
+		out[k] = sc.Restore(v)
+	}
+	return out
 }
 
 // AskCluster opens a cluster-wide Ask chat (no job scope). It gates policy,
