@@ -872,6 +872,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(a.setFlash(flashText, isErr), a.runNextInvestigation())
 
 	case views.ProposalMsg:
+		// The proposal path (investigate + ask) is the one mutating flow that
+		// bypasses readOnlyGuard — gate it here so a read-only context can
+		// never execute an AI-proposed action, confirmed or not.
+		if a.cfg.Contexts[a.contextName].ReadOnly {
+			return a, a.setFlash("[RO] context is read-only — AI proposals cannot be executed", true)
+		}
 		a.modal = newProposalModal(msg)
 		return a, nil
 

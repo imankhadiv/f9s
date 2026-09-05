@@ -37,12 +37,13 @@ type AskView struct {
 	agent    ai.Agent
 	provider string
 
-	input  textinput.Model
-	turns  []qaTurn
-	steps  []string // live tool-calls for the in-flight question
-	props  []ai.Proposal
-	busy   bool
-	events chan agentEvent
+	input       textinput.Model
+	turns       []qaTurn
+	steps       []string // live tool-calls for the in-flight question
+	props       []ai.Proposal
+	suggestions []string // starter questions shown on an empty chat
+	busy        bool
+	events      chan agentEvent
 
 	// grounding, resolved lazily on the first question and then reused.
 	evidence string
@@ -67,6 +68,26 @@ func NewAskView(deps Deps, jid, name string, agent ai.Agent, providerName string
 	return &AskView{
 		deps: deps, jid: jid, name: name, agent: agent, provider: providerName,
 		input: in, anon: deps.Cfg.Contexts[deps.Ctx].AI.AnonymizeOn(),
+		suggestions: starterQuestions(jid),
+	}
+}
+
+// starterQuestions returns a few tappable prompts for an empty chat, tuned to
+// the scope — one job's health, or the whole cluster.
+func starterQuestions(jid string) []string {
+	if jid != "" {
+		return []string{
+			"Why is this job backpressured?",
+			"Is checkpointing healthy?",
+			"Should I rescale — and to what?",
+			"What's the biggest risk right now?",
+		}
+	}
+	return []string{
+		"Which jobs are unhealthy?",
+		"Which job wastes the most slots?",
+		"Are any jobs failed or restarting?",
+		"Where is backpressure worst?",
 	}
 }
 
@@ -257,26 +278,36 @@ func (v *AskView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		switch msg.String() {
+		s := msg.String()
+		switch s {
 		case "enter":
-			if v.busy {
-				return v, nil
+			if !v.busy {
+				return v, v.send(strings.TrimSpace(v.input.Value()))
 			}
-			q := strings.TrimSpace(v.input.Value())
-			if q == "" {
-				return v, nil
-			}
-			v.turns = append(v.turns, qaTurn{who: "you", text: q})
-			v.input.SetValue("")
-			v.busy = true
-			v.steps = nil
-			v.syncContent()
-			return v, v.ask(q)
+			return v, nil
 		case "pgup", "pgdown":
 			if v.ready {
 				var cmd tea.Cmd
 				v.vp, cmd = v.vp.Update(msg)
 				return v, cmd
+			}
+			return v, nil
+		}
+		// A bare digit is a selection ONLY when the operator isn't mid-question
+		// (empty input) and nothing is in flight — otherwise it's typed text.
+		// Pending proposals take precedence; on a fresh chat it picks a starter.
+		if len(s) == 1 && s >= "1" && s <= "9" && !v.busy && strings.TrimSpace(v.input.Value()) == "" {
+			n := int(s[0] - '1')
+			if len(v.props) > 0 {
+				if n < len(v.props) {
+					p := v.props[n]
+					job := v.name
+					return v, func() tea.Msg { return ProposalMsg{Tool: p.Tool, Args: p.Args, Job: job} }
+				}
+				return v, nil
+			}
+			if len(v.turns) == 0 && n < len(v.suggestions) {
+				return v, v.send(v.suggestions[n])
 			}
 		}
 		// While a question is in flight the input is frozen; otherwise the
@@ -290,10 +321,29 @@ func (v *AskView) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return v, nil
 }
 
+// send submits a question and starts the agentic loop; empty is a no-op.
+func (v *AskView) send(q string) tea.Cmd {
+	if q == "" {
+		return nil
+	}
+	v.turns = append(v.turns, qaTurn{who: "you", text: q})
+	v.input.SetValue("")
+	v.busy = true
+	v.steps = nil
+	v.syncContent()
+	return v.ask(q)
+}
+
 func (v *AskView) content() string {
 	var b strings.Builder
 	if len(v.turns) == 0 && !v.busy {
 		b.WriteString(styles.Dim().Render("Ask anything about "+scopeLabel(v.jid, v.name)+". The assistant can read the cluster with its tools to answer.") + "\n")
+		if len(v.suggestions) > 0 {
+			b.WriteString("\n" + styles.Dim().Render("Try one (press the number):") + "\n")
+			for i, s := range v.suggestions {
+				b.WriteString(fmt.Sprintf(" %s %s\n", styles.OKText().Render(fmt.Sprintf("[%d]", i+1)), s))
+			}
+		}
 	}
 	for _, t := range v.turns {
 		switch t.who {
@@ -312,7 +362,7 @@ func (v *AskView) content() string {
 		b.WriteString(styles.Dim().Render(" thinking…") + "\n")
 	}
 	if len(v.props) > 0 {
-		b.WriteString("\n" + styles.ErrText().Render("PROPOSED ACTIONS (open the job and press A to review/approve)") + "\n")
+		b.WriteString("\n" + styles.ErrText().Render("PROPOSED ACTIONS — press the number to review & approve (nothing runs without confirmation)") + "\n")
 		for i, p := range v.props {
 			b.WriteString(fmt.Sprintf(" [%d] %s %v\n", i+1, p.Tool, p.Args))
 		}
