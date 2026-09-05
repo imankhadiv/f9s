@@ -1,0 +1,10 @@
+jid: f95b9883d3b57335f04ea5a72788a6d4
+description: a single-key GROUP BY starves one subtask and overloads the other
+expected:
+  - [skew]
+  - [hot, subtask]
+  - [key, imbalan]
+forbidden:
+  - out of memory
+  - kafka broker
+optimalSteps: 2

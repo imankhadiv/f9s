@@ -1,0 +1,1 @@
+[{"id":"busyTimeMsPerSecond","min":1.0,"max":350.0,"avg":175.5,"sum":351.0,"skew":99.43019943019942},{"id":"numRecordsInPerSecond","min":0.0,"max":2000951.3,"avg":1000475.65,"sum":2000951.3,"skew":100.0},{"id":"numRecordsOutPerSecond","min":0.0,"max":2000951.2333333334,"avg":1000475.6166666667,"sum":2000951.2333333334,"skew":100.0}]

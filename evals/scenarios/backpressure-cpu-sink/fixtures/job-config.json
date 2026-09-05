@@ -1,0 +1,1 @@
+{"jid":"2d66f246b3c8961f4d152a6364316bc3","name":"insert-into_default_catalog.default_database.chaos_sink","execution-config":{"restart-strategy":"Cluster level default restart strategy","job-parallelism":2,"object-reuse-mode":false,"user-config":{}}}

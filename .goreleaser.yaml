@@ -1,0 +1,62 @@
+version: 2
+project_name: f9s
+
+builds:
+  - main: ./cmd/f9s
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  groups:
+    - title: Features
+      regexp: '^feat'
+    - title: Fixes
+      regexp: '^fix'
+    - title: Other
+      order: 999
+
+# Uncomment once the homebrew-tap repo exists:
+brews:
+  - repository:
+      owner: imankhadiv
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/imankhadiv/f9s
+    description: "A k9s-style terminal UI for Apache Flink"
+    license: Apache-2.0
+    install: |
+      bin.install "f9s"
+    test: |
+      system "#{bin}/f9s", "--version"
+
+# Supply-chain trust: SBOMs for every archive, keyless cosign signature on
+# the checksums file (verify: cosign verify-blob --certificate checksums.txt.pem
+# --signature checksums.txt.sig checksums.txt --certificate-identity-regexp ...).
+sboms:
+  - artifacts: archive
+
+signs:
+  - cmd: cosign
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+    certificate: "${artifact}.pem"

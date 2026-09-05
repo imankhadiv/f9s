@@ -1,0 +1,72 @@
+# Local Flink session cluster for developing f9s against.
+# Start:  make playground   (submits a demo streaming job)
+# Stop:   make playground-down
+services:
+  jobmanager:
+    image: flink:2.1.0-java17
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        state.checkpoints.dir: file:///tmp/ckpt
+        execution.checkpointing.interval: 30s
+        jobmanager.scheduler: adaptive
+        rest.profiling.enabled: true
+        jobmanager.archive.fs.dir: file:///archive
+        execution.checkpointing.savepoint-dir: file:///tmp/sp
+        taskmanager.network.memory.buffer-debloat.enabled: true
+    volumes:
+      - flink-archive:/archive
+      - flink-savepoints:/tmp/sp
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/overview"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  taskmanager:
+    image: flink:2.1.0-java17
+    command: taskmanager
+    depends_on:
+      - jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 8
+        rest.profiling.enabled: true
+        taskmanager.network.memory.buffer-debloat.enabled: true
+    volumes:
+      - flink-savepoints:/tmp/sp
+
+  sql-gateway:
+    image: flink:2.1.0-java17
+    command: bin/sql-gateway.sh start-foreground -Dsql-gateway.endpoint.rest.address=0.0.0.0
+    depends_on:
+      - jobmanager
+    ports:
+      - "8083:8083"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        rest.address: jobmanager
+
+  historyserver:
+    image: flink:2.1.0-java17
+    command: bin/historyserver.sh start-foreground
+    depends_on:
+      - jobmanager
+    ports:
+      - "8082:8082"
+    environment:
+      FLINK_PROPERTIES: |
+        historyserver.web.address: 0.0.0.0
+        historyserver.web.port: 8082
+        historyserver.archive.fs.dir: file:///archive
+    volumes:
+      - flink-archive:/archive
+
+volumes:
+  flink-archive:
+  flink-savepoints:

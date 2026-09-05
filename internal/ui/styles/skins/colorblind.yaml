@@ -1,0 +1,11 @@
+# f9s bundled skin: colorblind — Okabe-Ito palette; ok/warn/error stay
+# distinguishable under deuteranopia and protanopia (blue / orange /
+# vermillion instead of green / amber / red).
+colors:
+  accent: { light: "#8A2B6B", dark: "#CC79A7" }
+  dim: { light: "#5B5B66", dark: "#9C9CA8" }
+  ok: { light: "#0072B2", dark: "#56B4E9" }
+  warn: { light: "#B87A00", dark: "#E69F00" }
+  error: { light: "#C1440E", dark: "#F26430" }
+  selectionFg: { light: "#101018", dark: "#F5F5FA" }
+  selectionBg: { light: "#D7E3F0", dark: "#31455C" }

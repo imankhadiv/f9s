@@ -1,0 +1,17 @@
+{
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3": "job.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/checkpoints": "checkpoints.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/checkpoints/config": "ckpt-config.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/exceptions": "exceptions.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/config": "job-config.json",
+ "/overview": "overview.json",
+ "/jobs/overview": "jobs-overview.json",
+ "/taskmanagers": "taskmanagers.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/metrics": "restarts.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/vertices/bc764cd8ddf7a0cff126f51c16239658/backpressure": "bp-0.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/vertices/bc764cd8ddf7a0cff126f51c16239658/subtasks/metrics": "vm-0.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/vertices/0a448493b4782967b150582570326227/backpressure": "bp-1.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/vertices/0a448493b4782967b150582570326227/subtasks/metrics": "vm-1.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/vertices/ea632d67b7d595e5b851708ae9ad79d6/backpressure": "bp-2.json",
+ "/jobs/2d66f246b3c8961f4d152a6364316bc3/vertices/ea632d67b7d595e5b851708ae9ad79d6/subtasks/metrics": "vm-2.json"
+}

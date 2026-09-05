@@ -1,0 +1,11 @@
+jid: 2d66f246b3c8961f4d152a6364316bc3
+description: a CPU-saturated Calc chain backpressures its datagen source
+expected:
+  - [backpressure]
+  - [busy, calc]
+  - [bottleneck]
+forbidden:
+  - out of memory
+  - kafka
+  - network partition
+optimalSteps: 2
