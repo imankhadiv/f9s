@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -72,7 +73,9 @@ contexts:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
+	// Unix file modes only — Windows reports 0666 regardless of the mode
+	// passed to os.WriteFile.
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("saved config should be 0600, got %v", fi.Mode().Perm())
 	}
 	reloaded, err := Load(cfg.Path)
