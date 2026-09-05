@@ -912,6 +912,35 @@ func (c *Client) MetricValues(path string, keys []string) ([]model.Metric, error
 	return ms, err
 }
 
+// JobManagerMetrics is a compact JVM snapshot from GET /jobmanager/metrics.
+// Missing keys are tolerated: heap falls back to 0 and CPU load to -1.
+func (c *Client) JobManagerMetrics() (model.JMMetrics, error) {
+	ms, err := c.MetricValues("/jobmanager/metrics", []string{
+		"Status.JVM.Memory.Heap.Used",
+		"Status.JVM.Memory.Heap.Max",
+		"Status.JVM.CPU.Load",
+	})
+	out := model.JMMetrics{CPULoad: -1}
+	if err != nil {
+		return out, err
+	}
+	for _, m := range ms {
+		v, ok := m.Float()
+		if !ok {
+			continue
+		}
+		switch m.ID {
+		case "Status.JVM.Memory.Heap.Used":
+			out.HeapUsed = int64(v)
+		case "Status.JVM.Memory.Heap.Max":
+			out.HeapMax = int64(v)
+		case "Status.JVM.CPU.Load":
+			out.CPULoad = v
+		}
+	}
+	return out, nil
+}
+
 // JobManagerConfig is GET /jobmanager/config.
 func (c *Client) JobManagerConfig() ([]model.ConfigEntry, error) {
 	var v []model.ConfigEntry

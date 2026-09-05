@@ -43,6 +43,7 @@ func TestViewsRenderSafelyAtAnySize(t *testing.T) {
 		"watermarks":     func() Model { return NewWatermarks(deps, "j1", "job") },
 		"subtasks":       func() Model { return NewSubtasks(deps, "j1", "v1", "vtx") },
 		"skewdetail":     func() Model { return NewSkewDetail(deps, "j1", "v1", "vtx", 4, true) },
+		"cluster":        func() Model { return NewCluster(deps) },
 		"configresolve":  func() Model { return NewConfigResolve(deps, "j1", "job") },
 		"configdiff":     func() Model { return NewConfigDiff(deps, "test", "test") },
 		"archaeology":    func() Model { return NewArchaeology(deps, "job") },

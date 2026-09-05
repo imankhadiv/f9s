@@ -475,3 +475,20 @@ func FmtBytes(n int64) string {
 	}
 	return fmt.Sprintf("%.1f%ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
+
+// JMMetrics is a compact snapshot of the JobManager JVM, from
+// GET /jobmanager/metrics.
+type JMMetrics struct {
+	HeapUsed int64
+	HeapMax  int64
+	CPULoad  float64 // 0..1 process CPU load, -1 when unknown
+}
+
+// HeapPct returns heap utilisation as a whole percentage, or -1 when the
+// max is unknown.
+func (m JMMetrics) HeapPct() int {
+	if m.HeapMax <= 0 {
+		return -1
+	}
+	return int(float64(m.HeapUsed) / float64(m.HeapMax) * 100)
+}

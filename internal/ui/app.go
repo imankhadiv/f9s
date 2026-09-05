@@ -162,6 +162,7 @@ var commandTargets = []struct {
 	desc  string
 }{
 	{[]string{"jobs", "job"}, "jobs"},
+	{[]string{"cluster", "cl"}, "cluster components (JM + TMs)"},
 	{[]string{"tms", "tm", "taskmanagers"}, "taskmanagers"},
 	{[]string{"savepoints", "sp", "ledger"}, "savepoint ledger"},
 	{[]string{"contexts", "ctx"}, "contexts"},
@@ -212,6 +213,8 @@ func (a *App) runCommand(cmd string) tea.Cmd {
 	case "jobs":
 		a.stack = []views.Model{jobs}
 		return tea.Batch(jobs.Init())
+	case "cluster":
+		target = views.NewCluster(deps)
 	case "tms":
 		target = views.NewTaskManagers(deps)
 	case "savepoints":
