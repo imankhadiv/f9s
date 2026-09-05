@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/imankhadiv/f9s/internal/config"
+	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/sentinel"
 	"github.com/imankhadiv/f9s/internal/watch"
 )
@@ -42,6 +43,19 @@ func TestViewsRenderSafelyAtAnySize(t *testing.T) {
 		"watermarks":     func() Model { return NewWatermarks(deps, "j1", "job") },
 		"subtasks":       func() Model { return NewSubtasks(deps, "j1", "v1", "vtx") },
 		"skewdetail":     func() Model { return NewSkewDetail(deps, "j1", "v1", "vtx", 4, true) },
+		"configresolve":  func() Model { return NewConfigResolve(deps, "j1", "job") },
+		"configdiff":     func() Model { return NewConfigDiff(deps, "test", "test") },
+		"archaeology":    func() Model { return NewArchaeology(deps, "job") },
+		"joblogs":        func() Model { return NewJobLogs(deps, "j1", "job") },
+		"stragglers":     func() Model { return NewStragglers(deps, "j1", 3) },
+		"textpager":      func() Model { return NewTextPager(deps, "pg", func() (string, error) { return "x", nil }) },
+		"tmdetail":       func() Model { return NewTMDetail(deps, "tm1") },
+		"bphistory":      func() Model { return NewBPHistory(deps, "j1", "job", nil) },
+		"kubedeploys":    func() Model { return NewKubeDeploys(deps) },
+		"exceptions":     func() Model { return NewExceptions(deps, "j1", "job") },
+		"tmlogfiles":     func() Model { return NewTMLogFiles(deps, "tm1") },
+		"metrics":        func() Model { return NewMetrics(deps, model.JobOverview{JID: "j1", Name: "job"}) },
+		"aisetup":        func() Model { return NewAISetup(deps, nil) },
 	}
 	// App.View refuses to render any view below 60x10 (it shows an
 	// enlarge-the-terminal notice), so that is the app's real contract:
