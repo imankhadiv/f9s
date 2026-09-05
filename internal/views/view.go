@@ -170,6 +170,37 @@ func investigateJob(deps Deps, jid, name string) tea.Cmd {
 	return push(NewInvestigate(deps, jid, name, agent, provider.Name()))
 }
 
+// AskCluster opens a cluster-wide Ask chat (no job scope). It gates policy,
+// provider, and capability exactly like the job-scoped path.
+func AskCluster(deps Deps) tea.Cmd { return askScope(deps, "", "") }
+
+// askScope gates and opens the free-form Ask chat. Pass jid/name to scope it
+// to one job; pass empty jid for a cluster-wide conversation. With no provider
+// configured it opens the in-TUI AI setup form, which retries after saving.
+func askScope(deps Deps, jid, name string) tea.Cmd {
+	aiCfg := deps.Cfg.Contexts[deps.Ctx].AI
+	if aiCfg.Policy == "deny" {
+		return flash("AI is disabled by policy on context " + deps.Ctx)
+	}
+	if aiCfg.Provider == "" {
+		return push(NewAISetup(deps, func() tea.Msg {
+			return askScope(deps, jid, name)()
+		}))
+	}
+	if g := tlsAIGuard(deps); g != nil {
+		return g
+	}
+	provider, err := ai.New(aiCfg)
+	if err != nil {
+		return flash("AI: " + err.Error())
+	}
+	agent, ok := ai.AsAgent(provider)
+	if !ok {
+		return flash("provider " + provider.Name() + " does not support conversational ask")
+	}
+	return push(NewAskView(deps, jid, name, agent, provider.Name()))
+}
+
 // tlsAIAck remembers per-context acceptance of the tlsSkipVerify+AI
 // combination for this session.
 var tlsAIAck = map[string]bool{}

@@ -96,6 +96,8 @@ func (d *JobDetail) Bindings() []key.Binding {
 		binding("S", "S", "stop+savepoint"),
 		binding("ctrl+x", "ctrl-x", "cancel"),
 		binding("a", "a", "ai explain"),
+		binding("A", "A", "agentic investigate"),
+		binding("@", "@", "ask ai"),
 		binding("b", "b", "bp history"),
 		binding("g", "g", "DAG"),
 		binding("L", "L", "job logs"),
@@ -216,6 +218,8 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return d, explainJob(d.deps, d.jid, d.name)
 		case "A":
 			return d, investigateJob(d.deps, d.jid, d.name)
+		case "@":
+			return d, askScope(d.deps, d.jid, d.name)
 		case "b":
 			return d, push(NewBPHistory(d.deps, d.jid, d.name, d.job.Vertices))
 		case "g":

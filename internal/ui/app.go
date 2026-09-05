@@ -176,6 +176,7 @@ var commandTargets = []struct {
 	{[]string{"jmlog", "jml"}, "jobmanager log"},
 	{[]string{"timeline", "tl"}, "incident timeline"},
 	{[]string{"doctor", "doc"}, "cluster lint"},
+	{[]string{"ask", "chat"}, "ask the AI (cluster-wide)"},
 	{[]string{"pulse", "pls"}, "cluster heartbeat"},
 	{[]string{"waste", "cost"}, "slot-waste finder"},
 	{[]string{"history", "hs"}, "history server"},
@@ -239,6 +240,9 @@ func (a *App) runCommand(cmd string) tea.Cmd {
 		target = views.NewTimeline(deps)
 	case "doctor":
 		target = views.NewDoctor(deps)
+	case "ask":
+		a.stack = []views.Model{jobs}
+		return tea.Batch(jobs.Init(), views.AskCluster(deps))
 	case "pulse":
 		target = views.NewPulse(deps)
 	case "waste":

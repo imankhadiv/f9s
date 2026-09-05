@@ -21,6 +21,11 @@ func (s scriptedAgent) Investigate(_ context.Context, seed string, _ *tools.Regi
 	return s.answer, nil
 }
 
+func (s scriptedAgent) Ask(_ context.Context, _ string, _ *tools.Registry, _ func(string) string, onStep ai.StepFn, _ ai.ProposeFn) (string, error) {
+	onStep("→ scripted")
+	return s.answer, nil
+}
+
 func TestHarnessScoring(t *testing.T) {
 	scenarios, err := LoadScenarios("../../evals/scenarios")
 	if err != nil {

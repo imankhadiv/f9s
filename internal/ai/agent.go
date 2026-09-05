@@ -33,6 +33,16 @@ Tools marked PROPOSAL ONLY queue an action for the human operator — call one o
 mutation is clearly warranted, at most once, and keep investigating or conclude afterwards.
 If the job is healthy, say so.`
 
+// AskSystemPrompt frames free-form, multi-turn Q&A about the cluster. Unlike
+// the investigation prompt it imposes no report template — it answers the
+// operator's actual question — but keeps the same tool discipline and the
+// same hard rule that mutations only ever get proposed.
+const AskSystemPrompt = `You are an Apache Flink SRE assistant embedded in a terminal UI, answering an operator's questions about their live cluster.
+You are given an evidence bundle (when a job is in focus) and the conversation so far. Answer the operator's latest question directly and concisely, in plain language — do NOT force a fixed report template.
+You may call the provided read-only tools to fetch anything the evidence does not already contain (list jobs, get a job, checkpoints, exceptions, taskmanagers, more evidence). Prefer a few targeted calls and never repeat an identical call.
+Ground every factual claim in the evidence or a tool result. If the data does not answer the question, say so plainly instead of guessing.
+Tools marked PROPOSAL ONLY queue an action for the human operator — suggest one only when clearly warranted; nothing runs without their confirmation.`
+
 // StepFn receives live progress lines ("→ get_checkpoints(jid=…)").
 type StepFn func(line string)
 
@@ -46,9 +56,14 @@ type Proposal struct {
 // ProposeFn receives action proposals.
 type ProposeFn func(p Proposal)
 
-// Agent is a provider that can run a multi-step tool-using investigation.
+// Agent is a provider that can run a multi-step tool-using loop, both for a
+// one-shot investigation and for free-form conversational questions.
 type Agent interface {
 	Investigate(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error)
+	// Ask answers a free-form question. The seed carries the grounding
+	// evidence plus the conversation so far; continuity is the caller's
+	// responsibility, so the loop itself stays stateless.
+	Ask(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error)
 }
 
 // AsAgent returns the provider's agentic interface when it has one.
@@ -153,11 +168,20 @@ func toolSchemas(reg *tools.Registry) []map[string]any {
 // Streaming is intentionally off: several compat layers drop tool_calls when
 // streaming.
 func (p *openAICompat) Investigate(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
+	return p.runToolLoop(ctx, AgentSystemPrompt, seed, reg, scrub, onStep, onPropose)
+}
+
+// Ask runs the same tool loop with the conversational prompt.
+func (p *openAICompat) Ask(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
+	return p.runToolLoop(ctx, AskSystemPrompt, seed, reg, scrub, onStep, onPropose)
+}
+
+func (p *openAICompat) runToolLoop(ctx context.Context, systemPrompt, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, agentWallClock)
 	defer cancel()
 	tr := newToolRunner(reg, scrub, onPropose)
 	msgs := []map[string]any{
-		{"role": "system", "content": AgentSystemPrompt},
+		{"role": "system", "content": systemPrompt},
 		{"role": "user", "content": seed},
 	}
 	schemas := p.toolSchemas(reg)
@@ -259,6 +283,15 @@ func rawCalls(data []byte) json.RawMessage {
 
 // Investigate runs the tool-use loop via the official SDK.
 func (p *anthropicProvider) Investigate(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
+	return p.runToolLoop(ctx, AgentSystemPrompt, seed, reg, scrub, onStep, onPropose)
+}
+
+// Ask runs the same tool loop with the conversational prompt.
+func (p *anthropicProvider) Ask(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
+	return p.runToolLoop(ctx, AskSystemPrompt, seed, reg, scrub, onStep, onPropose)
+}
+
+func (p *anthropicProvider) runToolLoop(ctx context.Context, systemPrompt, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, agentWallClock)
 	defer cancel()
 	client := anthropic.NewClient(option.WithAPIKey(p.key))
@@ -289,7 +322,7 @@ func (p *anthropicProvider) Investigate(ctx context.Context, seed string, reg *t
 		resp, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 			Model:     anthropic.Model(p.model),
 			MaxTokens: 2048,
-			System:    []anthropic.TextBlockParam{{Text: AgentSystemPrompt}},
+			System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
 			Messages:  msgs,
 			Tools:     toolParams,
 		})

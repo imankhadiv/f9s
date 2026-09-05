@@ -130,6 +130,7 @@ func (j *Jobs) Bindings() []key.Binding {
 		binding("m", "m", "metrics explorer"),
 		binding("a", "a", "ai explain"),
 		binding("A", "A", "agentic investigate"),
+		binding("@", "@", "ask ai"),
 		binding("Q", "Q", "sql console"),
 		binding("o", "o", "sort"),
 		binding("l", "l", "JM log"),
@@ -327,6 +328,10 @@ func (j *Jobs) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case "A":
 			if job, ok := j.selected(); ok {
 				return j, investigateJob(j.deps, job.JID, job.Name)
+			}
+		case "@":
+			if job, ok := j.selected(); ok {
+				return j, askScope(j.deps, job.JID, job.Name)
 			}
 		case "Q":
 			url := j.deps.Cfg.Contexts[j.deps.Ctx].SQLGateway

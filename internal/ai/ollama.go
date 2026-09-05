@@ -87,11 +87,20 @@ func (p *ollamaNative) Explain(ctx context.Context, evidence string) (string, er
 
 // Investigate runs the native-API tool loop.
 func (p *ollamaNative) Investigate(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
+	return p.runToolLoop(ctx, AgentSystemPrompt, seed, reg, scrub, onStep, onPropose)
+}
+
+// Ask runs the same native-API tool loop with the conversational prompt.
+func (p *ollamaNative) Ask(ctx context.Context, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
+	return p.runToolLoop(ctx, AskSystemPrompt, seed, reg, scrub, onStep, onPropose)
+}
+
+func (p *ollamaNative) runToolLoop(ctx context.Context, systemPrompt, seed string, reg *tools.Registry, scrub func(string) string, onStep StepFn, onPropose ProposeFn) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, agentWallClock)
 	defer cancel()
 	tr := newToolRunner(reg, scrub, onPropose)
 	msgs := []any{
-		map[string]string{"role": "system", "content": AgentSystemPrompt},
+		map[string]string{"role": "system", "content": systemPrompt},
 		map[string]string{"role": "user", "content": seed},
 	}
 	schemas := toolSchemas(reg)
