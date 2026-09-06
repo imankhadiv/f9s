@@ -1272,5 +1272,25 @@ func (a *App) View() string {
 		return out + " " + a.cmdInput.View() + hint +
 			styles.Dim().Render("   jobs · tms · savepoints · contexts · k8s · sql · log · inv · config · history · quit")
 	}
-	return out + " " + a.help.ShortHelpView(append(a.top().Bindings(), globalBindings()...))
+	return out + a.keyLegend(append(a.top().Bindings(), globalBindings()...))
+}
+
+// keyLegend renders the footer hotkey bar k9s-style: each key in the brand
+// accent, its description dim, segments joined by a dim dot and clipped to the
+// terminal width (press ? for the full grid).
+func (a *App) keyLegend(bindings []key.Binding) string {
+	parts := make([]string, 0, len(bindings))
+	for _, b := range bindings {
+		h := b.Help()
+		if h.Key == "" {
+			continue
+		}
+		seg := styles.Accent().Render(h.Key)
+		if h.Desc != "" {
+			seg += " " + styles.Dim().Render(h.Desc)
+		}
+		parts = append(parts, seg)
+	}
+	line := " " + strings.Join(parts, styles.Dim().Render(" · "))
+	return lipgloss.NewStyle().MaxWidth(a.width).Render(line)
 }
