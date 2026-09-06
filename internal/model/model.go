@@ -59,9 +59,12 @@ type Vertex struct {
 	Metrics     VertexMetrics `json:"metrics"`
 }
 
-// PlanInput is one upstream edge of a plan node.
+// PlanInput is one upstream edge of a plan node. ShipStrategy is the shuffle
+// mode Flink prints on the edge (FORWARD / HASH / REBALANCE / …).
 type PlanInput struct {
-	ID string `json:"id"`
+	ID           string `json:"id"`
+	ShipStrategy string `json:"ship_strategy"`
+	Exchange     string `json:"exchange"`
 }
 
 // PlanNode is one vertex in GET /jobs/:jid/plan.

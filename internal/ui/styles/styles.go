@@ -26,7 +26,19 @@ var (
 	red   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#B3372E", Dark: "#E06055"}
 	selFg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#1B1118", Dark: "#F5E1E4"}
 	selBg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#F0D4DA", Dark: "#4A2833"}
+	blue  lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#5B9BF5"}
 )
+
+// Raw palette-color accessors, for callers that need a TerminalColor (e.g. a
+// box border) rather than a Style.
+func GreenColor() lipgloss.TerminalColor { return green }
+func AmberColor() lipgloss.TerminalColor { return amber }
+func RedColor() lipgloss.TerminalColor   { return red }
+func BlueColor() lipgloss.TerminalColor  { return blue }
+func DimColor() lipgloss.TerminalColor   { return dim }
+
+// BlueText styles healthy/steady operator boxes (Flink's blue).
+func BlueText() lipgloss.Style { return lipgloss.NewStyle().Foreground(blue) }
 
 // tokenTargets maps skin.yaml token names onto the palette.
 var tokenTargets = map[string]*lipgloss.TerminalColor{

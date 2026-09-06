@@ -13,6 +13,12 @@ backpressure, checkpoints, and alerts into one panel with a single verdict:
 
 ![Cluster pulse dashboard](vhs/dashboard.png)
 
+**The Flink Web UI job graph, in your terminal** — press `g` on a job for
+the execution graph as health-colored operator boxes (parallelism,
+backpressure/busy/skew per box, `FORWARD`/`HASH` edges):
+
+![Execution graph boxes](vhs/dag.png)
+
 ## Why not just the Flink Web UI?
 
 The dashboard is fine at watching one job. Operating is a different sport:
@@ -89,7 +95,7 @@ retrying with backoff until the cluster answers.
 | `A` | agentic investigate: the model drills deeper with read-only tools, every call shown |
 | `@` | ask AI: free-form chat about the job (or `:ask` cluster-wide) — starter questions, and it can propose actions you approve inline |
 | `b` | backpressure history sparklines (in job detail) |
-| `g` | ASCII execution DAG with live busy/backpressure per node (in job detail) |
+| `g` | execution graph as Flink-UI-style boxes — per-operator parallelism, backpressure/busy/skew, health-colored, `←→` to pan (in job detail) |
 | `t` | per-vertex subtask table: attempts, TaskManager, lifecycle durations; enter shows retained attempt history (in job detail) |
 | `O` | config resolution: the cluster→job→operator override chain per setting, with the winning layer marked (in job detail) |
 | `w` | watermark propagation debugger: per-vertex event-time lag, the first stalling vertex + why (job detail) |
