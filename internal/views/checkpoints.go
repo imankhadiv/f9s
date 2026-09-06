@@ -131,80 +131,82 @@ func backendBadge(cfg model.CheckpointConfig) string {
 
 func (c *CheckpointsView) View(width, height int) string {
 	counts := c.cp.Counts
-	head := titleBar(width, "Checkpoints", counts.Total, fmt.Sprintf(
+	right := fmt.Sprintf(
 		"completed %d · failed %d · in-progress %d · restored %d",
-		counts.Completed, counts.Failed, counts.InProgress, counts.Restored))
-	out := head + "\n"
-	used := 1
-	if c.cfg.Mode != "" {
-		unaligned := "aligned"
-		if c.cfg.UnalignedEnabled {
-			unaligned = "unaligned"
-		}
-		out += styles.Dim().Render(fmt.Sprintf(" %s · every %s · timeout %s · %s barriers · ",
-			c.cfg.Mode, model.FmtDuration(c.cfg.Interval), model.FmtDuration(c.cfg.Timeout),
-			unaligned)) + backendBadge(c.cfg) + "\n"
-		used++
-		var durations []int64
-		for _, cp := range c.cp.History { // newest first
-			if cp.Status == "COMPLETED" && !cp.IsSavepoint {
-				durations = append(durations, cp.EndToEndDuration)
+		counts.Completed, counts.Failed, counts.InProgress, counts.Restored)
+	return framed(width, height, "Checkpoints", counts.Total, right, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if c.cfg.Mode != "" {
+			unaligned := "aligned"
+			if c.cfg.UnalignedEnabled {
+				unaligned = "unaligned"
+			}
+			out += styles.Dim().Render(fmt.Sprintf(" %s · every %s · timeout %s · %s barriers · ",
+				c.cfg.Mode, model.FmtDuration(c.cfg.Interval), model.FmtDuration(c.cfg.Timeout),
+				unaligned)) + backendBadge(c.cfg) + "\n"
+			used++
+			var durations []int64
+			for _, cp := range c.cp.History { // newest first
+				if cp.Status == "COMPLETED" && !cp.IsSavepoint {
+					durations = append(durations, cp.EndToEndDuration)
+				}
+			}
+			for _, ad := range analyze.CheckpointAdvice(durations, c.cfg.Interval, c.cfg.Timeout, c.cfg.UnalignedEnabled) {
+				out += styles.WarnText().Render(" ⚑ "+ad.Text) + "\n"
+				used++
+			}
+			if sm := c.cp.Summary; sm.EndToEndDuration.Max > 0 {
+				out += styles.Dim().Render(fmt.Sprintf(" duration  p50 %s · p90 %s · p99 %s · p999 %s · max %s",
+					model.FmtDuration(int64(sm.EndToEndDuration.P50)), model.FmtDuration(int64(sm.EndToEndDuration.P90)),
+					model.FmtDuration(int64(sm.EndToEndDuration.P99)), model.FmtDuration(int64(sm.EndToEndDuration.P999)),
+					model.FmtDuration(int64(sm.EndToEndDuration.Max)))) + "\n"
+				out += styles.Dim().Render(fmt.Sprintf(" size      p50 %s · p90 %s · p99 %s · max %s",
+					model.FmtBytes(int64(sm.StateSize.P50)), model.FmtBytes(int64(sm.StateSize.P90)),
+					model.FmtBytes(int64(sm.StateSize.P99)), model.FmtBytes(int64(sm.StateSize.Max)))) + "\n"
+				used += 2
 			}
 		}
-		for _, ad := range analyze.CheckpointAdvice(durations, c.cfg.Interval, c.cfg.Timeout, c.cfg.UnalignedEnabled) {
-			out += styles.WarnText().Render(" ⚑ "+ad.Text) + "\n"
+		if n := len(c.cp.History); n >= 3 {
+			sizes := make([]float64, 0, n)
+			maxS := 0.0
+			for i := n - 1; i >= 0; i-- { // oldest → newest
+				v := float64(c.cp.History[i].StateSize)
+				sizes = append(sizes, v)
+				if v > maxS {
+					maxS = v
+				}
+			}
+			out += " " + styles.Dim().Render("state size ") + styles.OKText().Render(spark(sizes, maxS, 40)) + "\n"
+			used++
+			// quantified growth verdict (least-squares over completed ckpts)
+			var gp []analyze.GrowthPoint
+			for i := len(c.cp.History) - 1; i >= 0; i-- {
+				h := c.cp.History[i]
+				if h.Status == "COMPLETED" && !h.IsSavepoint {
+					gp = append(gp, analyze.GrowthPoint{T: time.UnixMilli(h.TriggerTimestamp), Size: h.StateSize})
+				}
+			}
+			vol := int64(c.deps.Cfg.Contexts[c.deps.Ctx].StateVolumeGB) << 30
+			gv := analyze.StateGrowth(gp, vol)
+			gvStyle := styles.Dim()
+			if gv.Trend == "growing" {
+				gvStyle = styles.WarnText()
+				if gv.EtaDays > 0 && gv.EtaDays < 7 {
+					gvStyle = styles.ErrText()
+				}
+			}
+			out += " " + gvStyle.Render("▲ "+gv.Summary()) + "\n"
 			used++
 		}
-		if sm := c.cp.Summary; sm.EndToEndDuration.Max > 0 {
-			out += styles.Dim().Render(fmt.Sprintf(" duration  p50 %s · p90 %s · p99 %s · p999 %s · max %s",
-				model.FmtDuration(int64(sm.EndToEndDuration.P50)), model.FmtDuration(int64(sm.EndToEndDuration.P90)),
-				model.FmtDuration(int64(sm.EndToEndDuration.P99)), model.FmtDuration(int64(sm.EndToEndDuration.P999)),
-				model.FmtDuration(int64(sm.EndToEndDuration.Max)))) + "\n"
-			out += styles.Dim().Render(fmt.Sprintf(" size      p50 %s · p90 %s · p99 %s · max %s",
-				model.FmtBytes(int64(sm.StateSize.P50)), model.FmtBytes(int64(sm.StateSize.P90)),
-				model.FmtBytes(int64(sm.StateSize.P99)), model.FmtBytes(int64(sm.StateSize.Max)))) + "\n"
-			used += 2
+		if c.err != "" {
+			out += styles.ErrText().Render("⚠ "+c.err) + "\n"
+			used++
 		}
-	}
-	if n := len(c.cp.History); n >= 3 {
-		sizes := make([]float64, 0, n)
-		maxS := 0.0
-		for i := n - 1; i >= 0; i-- { // oldest → newest
-			v := float64(c.cp.History[i].StateSize)
-			sizes = append(sizes, v)
-			if v > maxS {
-				maxS = v
-			}
+		if c.tbl.Len() == 0 {
+			return out + styles.Dim().Render("No checkpoints yet — check execution.checkpointing.interval on the job.")
 		}
-		out += " " + styles.Dim().Render("state size ") + styles.OKText().Render(spark(sizes, maxS, 40)) + "\n"
-		used++
-		// quantified growth verdict (least-squares over completed ckpts)
-		var gp []analyze.GrowthPoint
-		for i := len(c.cp.History) - 1; i >= 0; i-- {
-			h := c.cp.History[i]
-			if h.Status == "COMPLETED" && !h.IsSavepoint {
-				gp = append(gp, analyze.GrowthPoint{T: time.UnixMilli(h.TriggerTimestamp), Size: h.StateSize})
-			}
-		}
-		vol := int64(c.deps.Cfg.Contexts[c.deps.Ctx].StateVolumeGB) << 30
-		gv := analyze.StateGrowth(gp, vol)
-		gvStyle := styles.Dim()
-		if gv.Trend == "growing" {
-			gvStyle = styles.WarnText()
-			if gv.EtaDays > 0 && gv.EtaDays < 7 {
-				gvStyle = styles.ErrText()
-			}
-		}
-		out += " " + gvStyle.Render("▲ "+gv.Summary()) + "\n"
-		used++
-	}
-	if c.err != "" {
-		out += styles.ErrText().Render("⚠ "+c.err) + "\n"
-		used++
-	}
-	if c.tbl.Len() == 0 {
-		return out + styles.Dim().Render("No checkpoints yet — check execution.checkpointing.interval on the job.")
-	}
-	c.tbl.SetSize(width, height-used)
-	return out + c.tbl.View()
+		c.tbl.SetSize(iw, ih-used)
+		return out + c.tbl.View()
+	})
 }

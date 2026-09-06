@@ -473,22 +473,24 @@ func (j *Jobs) View(width, height int) string {
 		col = 3
 	}
 	j.tbl.SetSort(col, styles.SortDesc)
-	out := titleBar(width, label, j.tbl.Len(), "sort: "+sortLabel(j.sortMode)) + "\n"
-	used := 1
-	if j.filterOn || j.filter.Value() != "" {
-		out += j.filter.View() + "\n"
-		used++
-	}
-	if j.err != "" {
-		out += errorBanner(j.err)
-		used++
-	}
-	if j.tbl.Len() == 0 {
-		if j.filter.Value() != "" {
-			return out + emptyState("0 jobs match filter "+strconv.Quote(j.filter.Value()))
+	return framed(width, height, label, j.tbl.Len(), "sort: "+sortLabel(j.sortMode), func(iw, ih int) string {
+		out := ""
+		used := 0
+		if j.filterOn || j.filter.Value() != "" {
+			out += j.filter.View() + "\n"
+			used++
 		}
-		return out + emptyState("No jobs on this cluster. Submit one and it appears here within a refresh.")
-	}
-	j.tbl.SetSize(width, height-used)
-	return out + j.tbl.View()
+		if j.err != "" {
+			out += errorBanner(j.err)
+			used++
+		}
+		if j.tbl.Len() == 0 {
+			if j.filter.Value() != "" {
+				return out + emptyState("0 jobs match filter "+strconv.Quote(j.filter.Value()))
+			}
+			return out + emptyState("No jobs on this cluster. Submit one and it appears here within a refresh.")
+		}
+		j.tbl.SetSize(iw, ih-used)
+		return out + j.tbl.View()
+	})
 }

@@ -152,21 +152,23 @@ func (w *WasteFinder) View(width, height int) string {
 	if !w.hasCost {
 		sub += " · set costPerSlotHour for $/day"
 	}
-	out := titleBar(width, "Waste finder", w.tbl.Len(), w.deps.Ctx+" · "+sub) + "\n"
-	used := 1
-	if fl := w.filter.Line(); fl != "" {
-		out += fl
-		used++
-	}
-	if w.err != "" {
-		out += errorBanner(w.err)
-		used++
-	}
-	if w.tbl.Len() == 0 && w.err == "" {
-		return out + emptyState(" no running jobs holding slots")
-	}
-	w.tbl.SetSize(width, height-used)
-	return out + w.tbl.View()
+	return framed(width, height, "Waste finder", w.tbl.Len(), w.deps.Ctx+" · "+sub, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if fl := w.filter.Line(); fl != "" {
+			out += fl
+			used++
+		}
+		if w.err != "" {
+			out += errorBanner(w.err)
+			used++
+		}
+		if w.tbl.Len() == 0 && w.err == "" {
+			return out + emptyState(" no running jobs holding slots")
+		}
+		w.tbl.SetSize(iw, ih-used)
+		return out + w.tbl.View()
+	})
 }
 
 var _ = strings.TrimSpace

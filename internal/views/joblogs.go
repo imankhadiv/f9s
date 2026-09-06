@@ -187,25 +187,27 @@ func (l *JobLogs) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (l *JobLogs) View(width, height int) string {
-	head := styles.ViewTitle().Render("Job logs · "+l.name) +
-		styles.Dim().Render(fmt.Sprintf("  · merged from %d TaskManager(s) · <r> reloads", l.tms)) + "\n"
-	used := 1
-	if l.err != "" {
-		head += styles.ErrText().Render("⚠ "+l.err) + "\n"
-		used++
-	}
-	if !l.ready {
-		l.vp = viewport.New(width, height-used)
-		l.ready = true
-		if l.text != "" {
-			l.vp.SetContent(l.text)
-			l.vp.GotoBottom()
+	right := fmt.Sprintf("merged from %d TaskManager(s) · <r> reloads", l.tms)
+	return framed(width, height, "Job logs · "+l.name, -1, right, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if l.err != "" {
+			out += styles.ErrText().Render("⚠ "+l.err) + "\n"
+			used++
 		}
-	}
-	l.vp.Width = width
-	l.vp.Height = height - used
-	if l.text == "" && l.err == "" {
-		l.vp.SetContent(styles.Dim().Render("collecting logs from the job's TaskManagers…"))
-	}
-	return head + l.vp.View()
+		if !l.ready {
+			l.vp = viewport.New(iw, ih-used)
+			l.ready = true
+			if l.text != "" {
+				l.vp.SetContent(l.text)
+				l.vp.GotoBottom()
+			}
+		}
+		l.vp.Width = iw
+		l.vp.Height = ih - used
+		if l.text == "" && l.err == "" {
+			l.vp.SetContent(styles.Dim().Render("collecting logs from the job's TaskManagers…"))
+		}
+		return out + l.vp.View()
+	})
 }

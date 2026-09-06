@@ -259,19 +259,21 @@ func (t *TaskManagersView) View(width, height int) string {
 	default:
 		t.tbl.SetSort(0, styles.SortDesc)
 	}
-	out := titleBar(width, "TaskManagers", t.tbl.Len(), "sort: "+tmSortLabel(t.sortMode)) + "\n"
-	used := 1
-	if fl := t.filter.Line(); fl != "" {
-		out += fl
-		used++
-	}
-	if t.err != "" {
-		out += errorBanner(t.err)
-		used++
-	}
-	if t.tbl.Len() == 0 {
-		return out + emptyState("No TaskManagers registered — is the cluster healthy?")
-	}
-	t.tbl.SetSize(width, height-used)
-	return out + t.tbl.View()
+	return framed(width, height, "TaskManagers", t.tbl.Len(), "sort: "+tmSortLabel(t.sortMode), func(iw, ih int) string {
+		out := ""
+		used := 0
+		if fl := t.filter.Line(); fl != "" {
+			out += fl
+			used++
+		}
+		if t.err != "" {
+			out += errorBanner(t.err)
+			used++
+		}
+		if t.tbl.Len() == 0 {
+			return out + emptyState("No TaskManagers registered — is the cluster healthy?")
+		}
+		t.tbl.SetSize(iw, ih-used)
+		return out + t.tbl.View()
+	})
 }

@@ -92,12 +92,14 @@ func (d *DoctorView) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (d *DoctorView) View(width, height int) string {
-	out := titleBar(width, "Doctor", d.tbl.Len(), d.deps.Ctx+" · config smells before they page you · also: f9s doctor (CLI)") + "\n"
-	used := 1
-	if d.err != "" {
-		out += errorBanner(d.err)
-		used++
-	}
-	d.tbl.SetSize(width, height-used)
-	return out + d.tbl.View()
+	return framed(width, height, "Doctor", d.tbl.Len(), d.deps.Ctx+" · config smells before they page you · also: f9s doctor (CLI)", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if d.err != "" {
+			out += errorBanner(d.err)
+			used++
+		}
+		d.tbl.SetSize(iw, ih-used)
+		return out + d.tbl.View()
+	})
 }

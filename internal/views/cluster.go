@@ -286,16 +286,18 @@ func (c *ClusterView) rebuild() {
 }
 
 func (c *ClusterView) View(width, height int) string {
-	out := titleBar(width, "Cluster", c.tbl.Len(), "JobManager + TaskManagers") + "\n"
-	used := 1
-	if fl := c.filter.Line(); fl != "" {
-		out += fl
-		used++
-	}
-	if c.err != "" {
-		out += errorBanner(c.err)
-		used++
-	}
-	c.tbl.SetSize(width, height-used)
-	return out + c.tbl.View()
+	return framed(width, height, "Cluster", c.tbl.Len(), "JobManager + TaskManagers", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if fl := c.filter.Line(); fl != "" {
+			out += fl
+			used++
+		}
+		if c.err != "" {
+			out += errorBanner(c.err)
+			used++
+		}
+		c.tbl.SetSize(iw, ih-used)
+		return out + c.tbl.View()
+	})
 }

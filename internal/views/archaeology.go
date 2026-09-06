@@ -172,15 +172,17 @@ func (a *Archaeology) View(width, height int) string {
 	if a.hsOff {
 		sub = "live + ledger only — add historyServer: to this context for completed runs"
 	}
-	out := titleBar(width, "Archaeology", a.tbl.Len(), a.name+" · "+sub) + "\n"
-	used := 1
-	if a.err != "" {
-		out += errorBanner(a.err)
-		used++
-	}
-	if a.tbl.Len() == 0 {
-		return out + emptyState(" no recorded runs for this job name")
-	}
-	a.tbl.SetSize(width, height-used)
-	return out + a.tbl.View()
+	return framed(width, height, "Archaeology", a.tbl.Len(), a.name+" · "+sub, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if a.err != "" {
+			out += errorBanner(a.err)
+			used++
+		}
+		if a.tbl.Len() == 0 {
+			return out + emptyState(" no recorded runs for this job name")
+		}
+		a.tbl.SetSize(iw, ih-used)
+		return out + a.tbl.View()
+	})
 }

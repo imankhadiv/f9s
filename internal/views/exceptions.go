@@ -99,16 +99,20 @@ func fmtTS(ms int64) string {
 }
 
 func (e *ExceptionsView) View(width, height int) string {
-	if !e.ready {
-		e.vp = viewport.New(width, height-2)
-		e.ready = true
-		e.vp.SetContent(emptyState("Loading exceptions…"))
-	}
-	e.vp.Width = width
-	e.vp.Height = height - 2
-	out := titleBar(width, "Exceptions", -1, e.name) + "\n"
-	if e.err != "" {
-		out += errorBanner(e.err)
-	}
-	return out + e.vp.View()
+	return framed(width, height, "Exceptions", -1, e.name, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if e.err != "" {
+			out += errorBanner(e.err)
+			used++
+		}
+		if !e.ready {
+			e.vp = viewport.New(iw, ih-used)
+			e.ready = true
+			e.vp.SetContent(emptyState("Loading exceptions…"))
+		}
+		e.vp.Width = iw
+		e.vp.Height = ih - used
+		return out + e.vp.View()
+	})
 }

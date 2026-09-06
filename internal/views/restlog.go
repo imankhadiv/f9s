@@ -70,10 +70,11 @@ func (r *RestLog) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (r *RestLog) View(width, height int) string {
-	out := titleBar(width, "REST calls", r.tbl.Len(), "every request f9s makes, newest first") + "\n"
-	if r.tbl.Len() == 0 {
-		return out + emptyState(" No calls recorded yet.")
-	}
-	r.tbl.SetSize(width, height-1)
-	return out + r.tbl.View()
+	return framed(width, height, "REST calls", r.tbl.Len(), "every request f9s makes, newest first", func(iw, ih int) string {
+		if r.tbl.Len() == 0 {
+			return emptyState(" No calls recorded yet.")
+		}
+		r.tbl.SetSize(iw, ih)
+		return r.tbl.View()
+	})
 }

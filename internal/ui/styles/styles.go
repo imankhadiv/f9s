@@ -3,9 +3,11 @@
 package styles
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // Sort-indicator glyphs for the active table column.
@@ -104,6 +106,72 @@ func Panel(title, body string, width int) string {
 		content = Accent().Bold(true).Render(title) + "\n" + body
 	}
 	return PanelBox().Width(width - 2).Render(content)
+}
+
+// TitledPanel wraps body in a rounded border of exactly width×height with a
+// styled resource title (and optional count + right-meta) sunk into the top
+// edge — the k9s silhouette:
+//
+//	╭─ JOBS (4) ─────────────────── sort: name ─╮
+//	│ …table…                                    │
+//	╰────────────────────────────────────────────╯
+//
+// It is safe at any size: below a usable width it degrades to a plain rounded
+// box, and the title/meta drop or truncate before any line can exceed width.
+func TitledPanel(title string, count int, right, body string, width, height int) string {
+	if width < 2 {
+		width = 2
+	}
+	if height < 2 {
+		height = 2
+	}
+	b := lipgloss.RoundedBorder()
+	// Below a usable width, skip the title entirely — a plain rounded box.
+	if width < 12 || title == "" {
+		return lipgloss.NewStyle().Border(b).BorderForeground(dim).
+			Width(width - 2).Height(height - 2).MaxHeight(height - 2).Render(body)
+	}
+	inner := width - 2
+
+	lbl := ViewTitle().Render(strings.ToUpper(title))
+	if count >= 0 {
+		lbl += " " + Dim().Render(fmt.Sprintf("(%d)", count))
+	}
+	label := " " + lbl + " "
+	rightSeg := ""
+	if right != "" {
+		rightSeg = " " + Dim().Render(right) + " "
+	}
+	lw, rw := lipgloss.Width(label), lipgloss.Width(rightSeg)
+	if lw+rw > inner { // drop the meta before overflowing
+		rightSeg, rw = "", 0
+	}
+	if lw > inner { // truncate the raw title, then re-style, to stay width-exact
+		raw := runewidth.Truncate(strings.ToUpper(title), inner-2, "…")
+		label = " " + ViewTitle().Render(raw) + " "
+		lw = lipgloss.Width(label)
+	}
+	dash := inner - lw - rw
+	if dash < 0 {
+		dash = 0
+	}
+	left := 1
+	if dash < left {
+		left = dash
+	}
+	mid := dash - left
+	dm := Dim()
+	top := dm.Render(b.TopLeft) + dm.Render(strings.Repeat(b.Top, left)) + label +
+		dm.Render(strings.Repeat(b.Top, mid)) + rightSeg + dm.Render(b.TopRight)
+
+	boxed := lipgloss.NewStyle().
+		Border(b, false, true, true, true). // top edge is the manual one above
+		BorderForeground(dim).
+		Width(inner).
+		Height(height - 2).
+		MaxHeight(height - 2).
+		Render(body)
+	return top + "\n" + boxed
 }
 
 // Severity picks OK/Warn/Err by how far a 0..1 (or 0..100) value has climbed

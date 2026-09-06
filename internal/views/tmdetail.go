@@ -312,12 +312,15 @@ func (t *TMDetail) memoryPanel() (string, int) {
 }
 
 func (t *TMDetail) View(width, height int) string {
+	return framed(width, height, "TaskManager "+t.id, -1, "", t.viewBody)
+}
+
+func (t *TMDetail) viewBody(width, height int) string {
 	m := t.tm.Metrics
-	head := styles.ViewTitle().Render("TaskManager "+t.id) + "\n" +
-		" " + heapLine(m.HeapUsed, m.HeapMax) +
+	head := " " + heapLine(m.HeapUsed, m.HeapMax) +
 		styles.Dim().Render(fmt.Sprintf("  ·  non-heap %s  ·  slots %d/%d  ·  %s",
 			model.FmtBytes(m.NonHeapUsed), t.tm.FreeSlots, t.tm.SlotsNumber, t.tm.Path)) + "\n"
-	used := 2
+	used := 1
 	if t.err != "" {
 		head += styles.ErrText().Render("⚠ "+t.err) + "\n"
 		used++

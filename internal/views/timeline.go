@@ -285,19 +285,20 @@ func reportsDir() string {
 }
 
 func (t *Timeline) View(width, height int) string {
-	head := titleBar(width, "Timeline", -1, t.deps.Ctx+" · alerts · actions · investigations, merged") + "\n"
-	if !t.ready {
-		t.vp = viewport.New(width, height-1)
-		t.ready = true
-		t.vp.SetContent(t.render(width))
-		t.vp.GotoBottom()
-	}
-	t.vp.Width = width
-	t.vp.Height = height - 1
-	atBottom := t.vp.AtBottom()
-	t.vp.SetContent(t.render(width))
-	if atBottom {
-		t.vp.GotoBottom()
-	}
-	return head + t.vp.View()
+	return framed(width, height, "Timeline", -1, t.deps.Ctx+" · alerts · actions · investigations, merged", func(iw, ih int) string {
+		if !t.ready {
+			t.vp = viewport.New(iw, ih)
+			t.ready = true
+			t.vp.SetContent(t.render(iw))
+			t.vp.GotoBottom()
+		}
+		t.vp.Width = iw
+		t.vp.Height = ih
+		atBottom := t.vp.AtBottom()
+		t.vp.SetContent(t.render(iw))
+		if atBottom {
+			t.vp.GotoBottom()
+		}
+		return t.vp.View()
+	})
 }

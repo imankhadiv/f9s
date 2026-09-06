@@ -246,14 +246,16 @@ func clip1(s string, n int) string {
 }
 
 func (c *ConfigResolve) View(width, height int) string {
-	head := styles.ViewTitle().Render("Config resolution · "+c.name) +
-		styles.Dim().Render("  the override chain: cluster → job → operator") + "\n"
-	if !c.ready {
-		c.vp = viewport.New(width, height-1)
-		c.ready = true
-		c.vp.SetContent(c.render())
-	}
-	c.vp.Width = width
-	c.vp.Height = height - 1
-	return head + c.vp.View()
+	return framed(width, height, "Config resolution · "+c.name, -1, "", func(iw, ih int) string {
+		out := styles.Dim().Render("  the override chain: cluster → job → operator") + "\n"
+		used := 1
+		if !c.ready {
+			c.vp = viewport.New(iw, ih-used)
+			c.ready = true
+			c.vp.SetContent(c.render())
+		}
+		c.vp.Width = iw
+		c.vp.Height = ih - used
+		return out + c.vp.View()
+	})
 }

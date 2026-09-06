@@ -127,15 +127,17 @@ func (a *AlertsView) View(width, height int) string {
 	if a.deps.Sentinel != nil {
 		openN = len(a.deps.Sentinel.OpenAlerts())
 	}
-	out := titleBar(width, "Alerts", a.tbl.Len(), "firing: "+strconv.Itoa(openN)+" · fire/clear after 3 samples") + "\n"
-	used := 1
-	if fl := a.filter.Line(); fl != "" {
-		out += fl
-		used++
-	}
-	if a.tbl.Len() == 0 && a.filter.input.Value() == "" {
-		return out + emptyState(" No alerts. The sentinel samples backpressure every 15s on running jobs.")
-	}
-	a.tbl.SetSize(width, height-used)
-	return out + a.tbl.View()
+	return framed(width, height, "Alerts", a.tbl.Len(), "firing: "+strconv.Itoa(openN)+" · fire/clear after 3 samples", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if fl := a.filter.Line(); fl != "" {
+			out += fl
+			used++
+		}
+		if a.tbl.Len() == 0 && a.filter.input.Value() == "" {
+			return out + emptyState(" No alerts. The sentinel samples backpressure every 15s on running jobs.")
+		}
+		a.tbl.SetSize(iw, ih-used)
+		return out + a.tbl.View()
+	})
 }

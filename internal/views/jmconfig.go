@@ -1,7 +1,6 @@
 package views
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -111,16 +110,18 @@ func (c *JMConfig) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (c *JMConfig) View(width, height int) string {
-	out := styles.ViewTitle().Render("Cluster config["+strconv.Itoa(c.tbl.Len())+"]") + "\n"
-	used := 1
-	if c.filterOn || c.filter.Value() != "" {
-		out += c.filter.View() + "\n"
-		used++
-	}
-	if c.err != "" {
-		out += styles.ErrText().Render(" ⚠ "+c.err) + "\n"
-		used++
-	}
-	c.tbl.SetSize(width, height-used)
-	return out + c.tbl.View()
+	return framed(width, height, "Cluster config", c.tbl.Len(), "", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if c.filterOn || c.filter.Value() != "" {
+			out += c.filter.View() + "\n"
+			used++
+		}
+		if c.err != "" {
+			out += styles.ErrText().Render(" ⚠ "+c.err) + "\n"
+			used++
+		}
+		c.tbl.SetSize(iw, ih-used)
+		return out + c.tbl.View()
+	})
 }

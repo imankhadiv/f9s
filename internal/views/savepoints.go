@@ -109,30 +109,32 @@ func (s *Savepoints) selectedEntry() (ledger.Entry, bool) {
 }
 
 func (s *Savepoints) View(width, height int) string {
-	out := titleBar(width, "Savepoint ledger", s.tbl.Len(), s.deps.Ctx) + "\n"
-	if s.tbl.Len() == 0 {
-		if s.err != "" {
-			return out + errorBanner(s.err)
+	return framed(width, height, "Savepoint ledger", s.tbl.Len(), s.deps.Ctx, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if s.tbl.Len() == 0 {
+			if s.err != "" {
+				return out + errorBanner(s.err)
+			}
+			return out + emptyState("No savepoints recorded yet. Trigger one with <s> on a job —\nf9s remembers every path so you don't have to.")
 		}
-		return out + emptyState("No savepoints recorded yet. Trigger one with <s> on a job —\nf9s remembers every path so you don't have to.")
-	}
-	used := 1
-	if fl := s.filter.Line(); fl != "" {
-		out += fl
-		used++
-	}
-	if s.err != "" {
-		out += errorBanner(s.err)
-		used++
-	}
-	if s.showCmd {
-		if e, ok := s.selectedEntry(); ok {
-			out += styles.Dim().Render(" restore: ") +
-				"flink run -s " + e.Path + " <your-job.jar>" +
-				styles.Dim().Render("   (<y> copies the path)") + "\n"
+		if fl := s.filter.Line(); fl != "" {
+			out += fl
 			used++
 		}
-	}
-	s.tbl.SetSize(width, height-used)
-	return out + s.tbl.View()
+		if s.err != "" {
+			out += errorBanner(s.err)
+			used++
+		}
+		if s.showCmd {
+			if e, ok := s.selectedEntry(); ok {
+				out += styles.Dim().Render(" restore: ") +
+					"flink run -s " + e.Path + " <your-job.jar>" +
+					styles.Dim().Render("   (<y> copies the path)") + "\n"
+				used++
+			}
+		}
+		s.tbl.SetSize(iw, ih-used)
+		return out + s.tbl.View()
+	})
 }

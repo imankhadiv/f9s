@@ -135,7 +135,8 @@ func (c *Contexts) View(width, height int) string {
 	if c.tbl.Len() == 0 {
 		c.rebuild()
 	}
-	out := titleBar(width, "Contexts", len(c.names), "* = active") + "\n"
-	c.tbl.SetSize(width, height-1)
-	return out + c.tbl.View()
+	return framed(width, height, "Contexts", len(c.names), "* = active", func(iw, ih int) string {
+		c.tbl.SetSize(iw, ih)
+		return c.tbl.View()
+	})
 }

@@ -152,20 +152,22 @@ func (c *ConfigDiff) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (c *ConfigDiff) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("Config drift · %s vs %s", c.ctxA, c.ctxB)) +
-		styles.Dim().Render(fmt.Sprintf("  %d differing keys · amber = upgrade-critical", c.count)) + "\n"
-	used := 1
-	if fl := c.filter.Line(); fl != "" {
-		out += fl
-		used++
-	}
-	if c.err != "" {
-		out += styles.ErrText().Render("⚠ "+c.err) + "\n"
-		used++
-	}
-	if c.count == 0 && c.err == "" {
-		return out + styles.OKText().Render(" no drift — both clusters run identical configs")
-	}
-	c.tbl.SetSize(width, height-used)
-	return out + c.tbl.View()
+	title := fmt.Sprintf("Config drift · %s vs %s", c.ctxA, c.ctxB)
+	return framed(width, height, title, -1, "", func(iw, ih int) string {
+		out := styles.Dim().Render(fmt.Sprintf("  %d differing keys · amber = upgrade-critical", c.count)) + "\n"
+		used := 1
+		if fl := c.filter.Line(); fl != "" {
+			out += fl
+			used++
+		}
+		if c.err != "" {
+			out += styles.ErrText().Render("⚠ "+c.err) + "\n"
+			used++
+		}
+		if c.count == 0 && c.err == "" {
+			return out + styles.OKText().Render(" no drift — both clusters run identical configs")
+		}
+		c.tbl.SetSize(iw, ih-used)
+		return out + c.tbl.View()
+	})
 }

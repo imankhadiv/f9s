@@ -145,12 +145,14 @@ type clientIface interface {
 }
 
 func (v *Subtasks) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("Subtasks[%d] · %s", v.tbl.Len(), v.vertex)) + "\n"
-	used := 1
-	if v.err != "" {
-		out += styles.ErrText().Render("⚠ "+v.err) + "\n"
-		used++
-	}
-	v.tbl.SetSize(width, height-used)
-	return out + v.tbl.View()
+	return framed(width, height, "Subtasks", v.tbl.Len(), v.vertex, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if v.err != "" {
+			out += styles.ErrText().Render("⚠ "+v.err) + "\n"
+			used++
+		}
+		v.tbl.SetSize(iw, ih-used)
+		return out + v.tbl.View()
+	})
 }

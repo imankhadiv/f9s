@@ -136,13 +136,15 @@ func fmtDurMs(ms int64) string {
 }
 
 func (v *Stragglers) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("Checkpoint %d — per-subtask breakdown", v.cpID)) +
-		styles.Dim().Render("  slowest first · ALIGN amber = barrier wait dominated") + "\n"
-	used := 1
-	if v.err != "" {
-		out += styles.ErrText().Render("⚠ "+v.err) + "\n"
-		used++
-	}
-	v.tbl.SetSize(width, height-used)
-	return out + v.tbl.View()
+	title := fmt.Sprintf("Checkpoint %d — per-subtask breakdown", v.cpID)
+	return framed(width, height, title, -1, "", func(iw, ih int) string {
+		out := styles.Dim().Render("  slowest first · ALIGN amber = barrier wait dominated") + "\n"
+		used := 1
+		if v.err != "" {
+			out += styles.ErrText().Render("⚠ "+v.err) + "\n"
+			used++
+		}
+		v.tbl.SetSize(iw, ih-used)
+		return out + v.tbl.View()
+	})
 }

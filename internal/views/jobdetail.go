@@ -422,12 +422,15 @@ func (d *JobDetail) rebuildRows() {
 }
 
 func (d *JobDetail) View(width, height int) string {
-	// Full JID here on purpose: it's what gets pasted into flink CLI commands.
-	head := styles.ViewTitle().Render(d.name) + "  " +
-		styles.Dim().Render(d.jid) + "  " +
+	return framed(width, height, d.name, -1, d.job.State+" · up "+model.FmtDuration(d.job.Duration), d.viewBody)
+}
+
+func (d *JobDetail) viewBody(width, height int) string {
+	// Full JID on the first line on purpose: it's what gets pasted into flink
+	// CLI commands (the job name is now in the frame border).
+	out := " " + styles.Dim().Render(d.jid) + "  " +
 		styles.StateStyle(d.job.State).Render(d.job.State) +
-		styles.Dim().Render(" · up "+model.FmtDuration(d.job.Duration))
-	out := head + "\n"
+		styles.Dim().Render(" · up "+model.FmtDuration(d.job.Duration)) + "\n"
 	used := 1
 	if d.showConfig && d.jobCfg != nil {
 		ec := d.jobCfg.ExecutionConfig

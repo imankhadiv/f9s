@@ -1,8 +1,6 @@
 package views
 
 import (
-	"fmt"
-
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -105,12 +103,14 @@ func (l *LogFiles) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (l *LogFiles) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("Log files[%d]", l.tbl.Len())) + "\n"
-	used := 1
-	if l.err != "" {
-		out += styles.ErrText().Render("⚠ "+l.err) + "\n"
-		used++
-	}
-	l.tbl.SetSize(width, height-used)
-	return out + l.tbl.View()
+	return framed(width, height, "Log files", l.tbl.Len(), "", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if l.err != "" {
+			out += styles.ErrText().Render("⚠ "+l.err) + "\n"
+			used++
+		}
+		l.tbl.SetSize(iw, ih-used)
+		return out + l.tbl.View()
+	})
 }

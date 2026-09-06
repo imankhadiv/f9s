@@ -29,6 +29,22 @@ func titleBar(width int, title string, count int, right string) string {
 	return " " + left + strings.Repeat(" ", gap) + r
 }
 
+// framed wraps a view's content in the titled rounded border (the k9s
+// silhouette). The build closure receives the INNER dimensions (border
+// subtracted) and must render its table/viewport to them — replacing the old
+// "print titleBar, then table at height-used" pattern. The title, count, and
+// right-meta are sunk into the top border instead of a separate line.
+func framed(width, height int, title string, count int, right string, build func(iw, ih int) string) string {
+	iw, ih := width-2, height-2
+	if iw < 1 {
+		iw = 1
+	}
+	if ih < 1 {
+		ih = 1
+	}
+	return styles.TitledPanel(title, count, right, build(iw, ih), width, height)
+}
+
 // errorBanner renders the consistent one-line error strip used across views.
 func errorBanner(msg string) string {
 	return styles.ErrText().Render("⚠ "+msg) + "\n"

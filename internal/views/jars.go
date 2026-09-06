@@ -330,27 +330,29 @@ func (j *Jars) run(jarID, savepoint string) tea.Cmd {
 }
 
 func (j *Jars) View(width, height int) string {
-	out := titleBar(width, "Jars", j.tbl.Len(), j.deps.Ctx) + "\n"
-	used := 1
-	if j.err != "" {
-		out += errorBanner(j.err)
-		used++
-	}
-	if fl := j.filter.Line(); fl != "" {
-		out += fl
-		used++
-	}
-	if j.prompt != promptNone {
-		label := " upload: "
-		if j.prompt == promptRestore {
-			label = " restore from: "
+	return framed(width, height, "Jars", j.tbl.Len(), j.deps.Ctx, func(iw, ih int) string {
+		out := ""
+		used := 0
+		if j.err != "" {
+			out += errorBanner(j.err)
+			used++
 		}
-		out += styles.OKText().Render(label) + j.input.View() + "\n"
-		used++
-	}
-	if j.tbl.Len() == 0 && j.prompt == promptNone {
-		return out + emptyState("No jars uploaded. <u> uploads a local jar; <enter> runs it;\n<S> restores it from the newest ledger savepoint — the full\nstop→fix→resume loop without leaving the terminal.")
-	}
-	j.tbl.SetSize(width, height-used)
-	return out + j.tbl.View()
+		if fl := j.filter.Line(); fl != "" {
+			out += fl
+			used++
+		}
+		if j.prompt != promptNone {
+			label := " upload: "
+			if j.prompt == promptRestore {
+				label = " restore from: "
+			}
+			out += styles.OKText().Render(label) + j.input.View() + "\n"
+			used++
+		}
+		if j.tbl.Len() == 0 && j.prompt == promptNone {
+			return out + emptyState("No jars uploaded. <u> uploads a local jar; <enter> runs it;\n<S> restores it from the newest ledger savepoint — the full\nstop→fix→resume loop without leaving the terminal.")
+		}
+		j.tbl.SetSize(iw, ih-used)
+		return out + j.tbl.View()
+	})
 }

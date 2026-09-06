@@ -265,18 +265,20 @@ func truncate(s string, n int) string {
 }
 
 func (d *DagView) View(width, height int) string {
-	head := styles.ViewTitle().Render("Execution graph — "+d.name) + "\n"
-	used := 1
-	if d.err != "" {
-		head += styles.ErrText().Render("⚠ "+d.err) + "\n"
-		used++
-	}
-	if !d.ready {
-		d.vp = viewport.New(width, height-used)
-		d.ready = true
-	}
-	d.vp.Width = width
-	d.vp.Height = height - used
-	d.vp.SetContent(d.render())
-	return head + d.vp.View()
+	return framed(width, height, "Execution graph — "+d.name, -1, "", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if d.err != "" {
+			out += styles.ErrText().Render("⚠ "+d.err) + "\n"
+			used++
+		}
+		if !d.ready {
+			d.vp = viewport.New(iw, ih-used)
+			d.ready = true
+		}
+		d.vp.Width = iw
+		d.vp.Height = ih - used
+		d.vp.SetContent(d.render())
+		return out + d.vp.View()
+	})
 }

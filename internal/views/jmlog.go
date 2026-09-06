@@ -85,25 +85,26 @@ func (l *JMLog) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (l *JMLog) View(width, height int) string {
-	head := styles.ViewTitle().Render("JobManager log") +
-		styles.Dim().Render("  · last 1000 lines · <r> reloads") + "\n"
-	used := 1
-	if l.err != "" {
-		head += styles.ErrText().Render("⚠ "+l.err) + "\n"
-		used++
-	}
-	if !l.ready {
-		l.vp = viewport.New(width, height-used)
-		l.ready = true
-		if l.text != "" {
-			l.vp.SetContent(l.text)
-			l.vp.GotoBottom()
+	return framed(width, height, "JobManager log", -1, "last 1000 lines · <r> reloads", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if l.err != "" {
+			out += styles.ErrText().Render("⚠ "+l.err) + "\n"
+			used++
 		}
-	}
-	l.vp.Width = width
-	l.vp.Height = height - used
-	if l.text == "" {
-		l.vp.SetContent(styles.Dim().Render("loading JobManager log…"))
-	}
-	return head + l.vp.View()
+		if !l.ready {
+			l.vp = viewport.New(iw, ih-used)
+			l.ready = true
+			if l.text != "" {
+				l.vp.SetContent(l.text)
+				l.vp.GotoBottom()
+			}
+		}
+		l.vp.Width = iw
+		l.vp.Height = ih - used
+		if l.text == "" {
+			l.vp.SetContent(styles.Dim().Render("loading JobManager log…"))
+		}
+		return out + l.vp.View()
+	})
 }

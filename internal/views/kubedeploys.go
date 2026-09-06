@@ -121,17 +121,19 @@ func mapJM(s string) string {
 }
 
 func (k *KubeDeploys) View(width, height int) string {
-	out := titleBar(width, "FlinkDeployments", k.tbl.Len(), "via kubectl · refreshes every 10s") + "\n"
-	used := 1
-	if k.err != "" {
-		return out + errorBanner(k.err)
-	}
-	if !k.loaded {
-		return out + emptyState(" running kubectl get flinkdeployments -A …")
-	}
-	if k.tbl.Len() == 0 {
-		return out + emptyState(" No FlinkDeployments found on the current kube context.")
-	}
-	k.tbl.SetSize(width, height-used)
-	return out + k.tbl.View()
+	return framed(width, height, "FlinkDeployments", k.tbl.Len(), "via kubectl · refreshes every 10s", func(iw, ih int) string {
+		out := ""
+		used := 0
+		if k.err != "" {
+			return out + errorBanner(k.err)
+		}
+		if !k.loaded {
+			return out + emptyState(" running kubectl get flinkdeployments -A …")
+		}
+		if k.tbl.Len() == 0 {
+			return out + emptyState(" No FlinkDeployments found on the current kube context.")
+		}
+		k.tbl.SetSize(iw, ih-used)
+		return out + k.tbl.View()
+	})
 }

@@ -78,25 +78,26 @@ func (p *TextPager) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (p *TextPager) View(width, height int) string {
-	head := styles.ViewTitle().Render(p.title) +
-		styles.Dim().Render("  · last 2000 lines · <r> reloads") + "\n"
-	used := 1
-	if p.err != "" {
-		head += styles.ErrText().Render("⚠ "+p.err) + "\n"
-		used++
-	}
-	if !p.ready {
-		p.vp = viewport.New(width, height-used)
-		p.ready = true
-		if p.text != "" {
-			p.vp.SetContent(p.text)
-			p.vp.GotoBottom()
+	return framed(width, height, p.title, -1, "", func(iw, ih int) string {
+		out := styles.Dim().Render("  · last 2000 lines · <r> reloads") + "\n"
+		used := 1
+		if p.err != "" {
+			out += styles.ErrText().Render("⚠ "+p.err) + "\n"
+			used++
 		}
-	}
-	p.vp.Width = width
-	p.vp.Height = height - used
-	if p.text == "" && p.err == "" {
-		p.vp.SetContent(styles.Dim().Render("loading…"))
-	}
-	return head + p.vp.View()
+		if !p.ready {
+			p.vp = viewport.New(iw, ih-used)
+			p.ready = true
+			if p.text != "" {
+				p.vp.SetContent(p.text)
+				p.vp.GotoBottom()
+			}
+		}
+		p.vp.Width = iw
+		p.vp.Height = ih - used
+		if p.text == "" && p.err == "" {
+			p.vp.SetContent(styles.Dim().Render("loading…"))
+		}
+		return out + p.vp.View()
+	})
 }

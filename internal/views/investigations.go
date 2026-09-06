@@ -125,10 +125,11 @@ func (v *Investigations) View(width, height int) string {
 		return styles.ViewTitle().Render("Investigation · "+r.Job) + "\n" + v.vp.View()
 	}
 	v.rebuild()
-	out := titleBar(width, "Investigations", v.tbl.Len(), "auto-run on alerts (watch mode) · queued, never interrupting") + "\n"
-	if v.tbl.Len() == 0 {
-		return out + emptyState(" None yet. Enable with ai: { watch: true } — alerts then trigger\n background investigations (deduped 30m, max 4/hour).")
-	}
-	v.tbl.SetSize(width, height-1)
-	return out + v.tbl.View()
+	return framed(width, height, "Investigations", v.tbl.Len(), "auto-run on alerts (watch mode) · queued, never interrupting", func(iw, ih int) string {
+		if v.tbl.Len() == 0 {
+			return emptyState(" None yet. Enable with ai: { watch: true } — alerts then trigger\n background investigations (deduped 30m, max 4/hour).")
+		}
+		v.tbl.SetSize(iw, ih)
+		return v.tbl.View()
+	})
 }
