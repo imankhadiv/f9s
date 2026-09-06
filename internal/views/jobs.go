@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
@@ -407,6 +408,7 @@ func (j *Jobs) applyFilter() {
 	needle := strings.ToLower(j.filter.Value())
 	j.filtered = j.filtered[:0]
 	rows := make([][]uitable.Cell, 0, len(j.all))
+	tints := map[int]lipgloss.Style{}
 	var keys []string
 	for _, job := range j.all {
 		if needle != "" && !strings.Contains(strings.ToLower(job.Name), needle) {
@@ -445,8 +447,26 @@ func (j *Jobs) applyFilter() {
 			uitable.Styled(extra.lastCkpt, ckptStyle),
 			uitable.Styled(extra.restarts, restartStyle),
 		})
+		if st, ok := rowTint(job.State); ok {
+			tints[len(rows)-1] = st
+		}
 	}
 	j.tbl.SetRowsKeyed(rows, keys)
+	j.tbl.SetRowTints(tints)
+}
+
+// rowTint fades terminal/dead jobs and flags failing ones so a job list reads
+// as healthy/sick at a glance; RUNNING rows keep their per-cell colors.
+func rowTint(state string) (lipgloss.Style, bool) {
+	switch state {
+	case "CANCELED", "FINISHED", "SUSPENDED", "COMPLETED":
+		return styles.Dim(), true
+	case "FAILED", "FAILING":
+		return styles.ErrText(), true
+	case "RESTARTING", "RECONCILING", "CANCELLING":
+		return styles.WarnText(), true
+	}
+	return lipgloss.Style{}, false
 }
 
 func statusTasks(t model.TaskCounts) string {

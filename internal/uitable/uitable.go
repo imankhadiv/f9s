@@ -44,9 +44,10 @@ type Model struct {
 
 	cols    []Column
 	rows    [][]Cell
-	keys    []string // optional per-row identity for cursor stability
-	sortCol int      // active sort column, -1 for none
-	sortGly string   // sort-arrow glyph appended to that column's title
+	keys    []string               // optional per-row identity for cursor stability
+	tints   map[int]lipgloss.Style // whole-row fg tint by original row index
+	sortCol int                    // active sort column, -1 for none
+	sortGly string                 // sort-arrow glyph appended to that column's title
 	filter  string
 	vis     []int // visible row indexes under the filter; nil = all rows
 	cursor  int   // position within the visible list
@@ -125,6 +126,11 @@ func (m *Model) SetColumns(cols []Column) { m.cols = cols }
 func (m *Model) SetSort(col int, glyph string) {
 	m.sortCol, m.sortGly = col, glyph
 }
+
+// SetRowTints sets a whole-row foreground tint by ORIGINAL row index — used to
+// fade completed/canceled rows and flag failed ones so lifecycle reads at a
+// glance. The selection band still overrides a tinted row. Pass nil to clear.
+func (m *Model) SetRowTints(t map[int]lipgloss.Style) { m.tints = t }
 
 // SetRows replaces the data and clamps the cursor.
 func (m *Model) SetRows(rows [][]Cell) {
@@ -295,6 +301,14 @@ func (m *Model) View() string {
 				parts[i] = fitAlign(cellText(cells, i), ws[i], m.cols[i].Right)
 			}
 			lines = append(lines, m.SelectedStyle.Render(" "+strings.Join(parts, gap)))
+			continue
+		}
+		if tint, ok := m.tints[m.visibleIdx(r)]; ok {
+			// whole-row lifecycle tint: render plain, then tint the line
+			for i := range m.cols {
+				parts[i] = fitAlign(cellText(cells, i), ws[i], m.cols[i].Right)
+			}
+			lines = append(lines, tint.Render(" "+strings.Join(parts, gap)))
 			continue
 		}
 		for i := range m.cols {
