@@ -36,8 +36,8 @@ func NewContexts(deps Deps) *Contexts {
 		{Title: "URL", Width: -1},
 		{Title: "STATUS", Width: 12},
 		{Title: "FLINK", Width: 8},
-		{Title: "JOBS", Width: 5},
-		{Title: "TMS", Width: 4},
+		{Title: "JOBS", Width: 5, Right: true},
+		{Title: "TMS", Width: 4, Right: true},
 	})
 	names := make([]string, 0, len(deps.Cfg.Contexts))
 	for name := range deps.Cfg.Contexts {
@@ -135,8 +135,7 @@ func (c *Contexts) View(width, height int) string {
 	if c.tbl.Len() == 0 {
 		c.rebuild()
 	}
-	out := styles.ViewTitle().Render("Contexts["+strconv.Itoa(len(c.names))+"]") +
-		styles.Dim().Render("  * = active") + "\n"
+	out := titleBar(width, "Contexts", len(c.names), "* = active") + "\n"
 	c.tbl.SetSize(width, height-1)
 	return out + c.tbl.View()
 }

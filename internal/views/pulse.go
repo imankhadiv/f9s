@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
@@ -140,67 +141,103 @@ func (p *Pulse) View(width, height int) string {
 		return head + "\n" + styles.Dim().Render(" reading the cluster…")
 	}
 	d := p.d
-	var b strings.Builder
-	b.WriteString(head + styles.Dim().Render(fmt.Sprintf("  flink %s", d.ov.FlinkVersion)) + "\n\n")
+	open := 0
+	if p.deps.Sentinel != nil {
+		open = len(p.deps.Sentinel.OpenAlerts())
+	}
 
-	// slot utilization gauge
+	// tile bodies -----------------------------------------------------------
+	cols := 3
+	tileW := (width - 2) / cols
+	if tileW < 26 {
+		cols, tileW = 1, width-1
+	}
+	iw := tileW - 4 // inner text width (border + padding)
+	if iw < 6 {
+		iw = 6
+	}
+	gw := iw
+	if gw > 24 {
+		gw = 24
+	}
+
 	used := d.ov.SlotsTotal - d.ov.SlotsAvailable
-	b.WriteString(fmt.Sprintf(" %-14s %s %d/%d\n", "slots", gauge(used, d.ov.SlotsTotal, 30), used, d.ov.SlotsTotal))
-	b.WriteString(fmt.Sprintf(" %-14s %s\n", "", styles.Dim().Render(spark(p.slotH, floatMax(p.slotH), 30))))
+	slotsBody := gauge(used, d.ov.SlotsTotal, gw) + "\n" +
+		fmt.Sprintf("%d/%d slots", used, d.ov.SlotsTotal) + "\n" +
+		styles.Dim().Render(spark(p.slotH, floatMax(p.slotH), gw))
 
-	// job-state mix
 	states := make([]string, 0, len(d.jobStates))
 	for s := range d.jobStates {
 		states = append(states, s)
 	}
 	sort.Strings(states)
-	var parts []string
+	jl := make([]string, 0, len(states)+1)
 	for _, s := range states {
-		st := styles.StateStyle(s)
-		parts = append(parts, st.Render(fmt.Sprintf("%d %s", d.jobStates[s], s)))
+		jl = append(jl, styles.StateStyle(s).Render(fmt.Sprintf("%d %s", d.jobStates[s], s)))
 	}
-	b.WriteString(fmt.Sprintf(" %-14s %s · %d TMs\n\n", "jobs", strings.Join(parts, "  "), d.ov.TaskManagers))
+	jl = append(jl, styles.Dim().Render(fmt.Sprintf("%d TMs", d.ov.TaskManagers)))
+	jobsBody := strings.Join(jl, "\n")
 
-	// throughput
-	b.WriteString(fmt.Sprintf(" %-14s %s rec/s in\n", "throughput", styles.OKText().Render(fmtRate(d.totalIn))))
-	b.WriteString(fmt.Sprintf(" %-14s %s\n\n", "", styles.Dim().Render(spark(p.inHist, floatMax(p.inHist), 30))))
+	tpBody := styles.OKText().Render(fmtRate(d.totalIn)) + styles.Dim().Render(" rec/s in") + "\n" +
+		styles.Dim().Render(spark(p.inHist, floatMax(p.inHist), gw))
 
-	// backpressure verdict
 	bpTxt, bpStyle := "clear", styles.OKText()
 	switch d.worstBP {
 	case "high":
-		bpTxt, bpStyle = "HIGH on "+shortName(d.worstBPJob), styles.ErrText()
+		bpTxt, bpStyle = "HIGH", styles.ErrText()
 	case "low":
-		bpTxt, bpStyle = "low on "+shortName(d.worstBPJob), styles.WarnText()
+		bpTxt, bpStyle = "low", styles.WarnText()
 	}
-	b.WriteString(fmt.Sprintf(" %-14s %s\n", "backpressure", bpStyle.Render(bpTxt)))
+	bpBody := bpStyle.Render(bpTxt)
+	if d.worstBP != "" && d.worstBPJob != "" {
+		bpBody += "\n" + styles.Dim().Render(shortName(d.worstBPJob))
+	}
 
-	// checkpoints
 	ckStyle := styles.OKText()
 	if d.ckptFail > 0 {
 		ckStyle = styles.WarnText()
 	}
-	b.WriteString(fmt.Sprintf(" %-14s %s\n", "checkpoints", ckStyle.Render(fmt.Sprintf("%d completed · %d failed", d.ckptOK, d.ckptFail))))
+	ckBody := ckStyle.Render(fmt.Sprintf("%d completed", d.ckptOK)) + "\n" +
+		ckStyle.Render(fmt.Sprintf("%d failed", d.ckptFail))
 
-	// alerts
-	open := 0
-	if p.deps.Sentinel != nil {
-		open = len(p.deps.Sentinel.OpenAlerts())
-	}
-	alStyle := styles.OKText()
-	alTxt := "none firing"
+	alStyle, alTxt := styles.OKText(), "none firing"
 	if open > 0 {
-		alStyle, alTxt = styles.ErrText(), fmt.Sprintf("%d FIRING — press ! ", open)
+		alStyle, alTxt = styles.ErrText(), fmt.Sprintf("%d FIRING", open)
 	}
-	b.WriteString(fmt.Sprintf(" %-14s %s\n", "alerts", alStyle.Render(alTxt)))
+	alBody := alStyle.Render(alTxt) + "\n" + styles.Dim().Render("press ! for alerts")
+
+	tiles := []struct{ title, body string }{
+		{"SLOTS", slotsBody},
+		{"JOBS", jobsBody},
+		{"THROUGHPUT", tpBody},
+		{"BACKPRESSURE", bpBody},
+		{"CHECKPOINTS", ckBody},
+		{"ALERTS", alBody},
+	}
+
+	// layout: grid of tiles, or a single stacked column on a narrow terminal
+	var b strings.Builder
+	b.WriteString(head + styles.Dim().Render(fmt.Sprintf("  flink %s", d.ov.FlinkVersion)) + "\n\n")
+	if tileW >= 4 {
+		var rows []string
+		for i := 0; i < len(tiles); i += cols {
+			var rt []string
+			for j := i; j < i+cols && j < len(tiles); j++ {
+				rt = append(rt, styles.Panel(tiles[j].title, tiles[j].body, tileW))
+			}
+			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, rt...))
+		}
+		b.WriteString(strings.Join(rows, "\n"))
+	}
 
 	// overall verdict banner
-	b.WriteString("\n")
-	if open > 0 || d.worstBP == "high" || d.jobStates["FAILED"] > 0 || d.jobStates["RESTARTING"] > 0 {
+	b.WriteString("\n\n")
+	switch {
+	case open > 0 || d.worstBP == "high" || d.jobStates["FAILED"] > 0 || d.jobStates["RESTARTING"] > 0:
 		b.WriteString(" " + styles.ErrText().Render("● NEEDS ATTENTION") + styles.Dim().Render(" — drill in with :jobs or !"))
-	} else if d.worstBP == "low" || d.ckptFail > 0 {
+	case d.worstBP == "low" || d.ckptFail > 0:
 		b.WriteString(" " + styles.WarnText().Render("● WATCH") + styles.Dim().Render(" — soft signals present"))
-	} else {
+	default:
 		b.WriteString(" " + styles.OKText().Render("● HEALTHY") + styles.Dim().Render(" — all clear"))
 	}
 	b.WriteString(styles.Dim().Render(fmt.Sprintf("   %s", time.Now().Format("15:04:05"))))

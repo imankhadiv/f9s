@@ -85,10 +85,10 @@ func NewJobs(deps Deps) *Jobs {
 		{Title: "NAME", Width: -1},
 		{Title: "JID", Width: 10},
 		{Title: "STATUS", Width: 12},
-		{Title: "UPTIME", Width: 9},
-		{Title: "TASKS", Width: 9},
-		{Title: "LAST CKPT", Width: 10},
-		{Title: "RESTARTS", Width: 8},
+		{Title: "UPTIME", Width: 9, Right: true},
+		{Title: "TASKS", Width: 9, Right: true},
+		{Title: "LAST CKPT", Width: 10, Right: true},
+		{Title: "RESTARTS", Width: 8, Right: true},
 	})
 	fi := textinput.New()
 	fi.Prompt = "/"
@@ -459,26 +459,35 @@ func statusTasks(t model.TaskCounts) string {
 
 func (j *Jobs) View(width, height int) string {
 	j.applyFilter() // re-render each frame so staleness markers age live
-	label := "Jobs(all)"
+	label := "Jobs"
 	if j.title == "history" {
 		label = "Completed jobs"
 	}
-	out := styles.ViewTitle().Render(label+"["+strconv.Itoa(j.tbl.Len())+"]") +
-		styles.Dim().Render("  sort:"+sortLabel(j.sortMode)) + "\n"
+	col := -1
+	switch j.sortMode {
+	case sortName:
+		col = 0
+	case sortStatus:
+		col = 2
+	case sortUptime:
+		col = 3
+	}
+	j.tbl.SetSort(col, styles.SortDesc)
+	out := titleBar(width, label, j.tbl.Len(), "sort: "+sortLabel(j.sortMode)) + "\n"
 	used := 1
 	if j.filterOn || j.filter.Value() != "" {
 		out += j.filter.View() + "\n"
 		used++
 	}
 	if j.err != "" {
-		out += styles.ErrText().Render("⚠ "+j.err) + "\n"
+		out += errorBanner(j.err)
 		used++
 	}
 	if j.tbl.Len() == 0 {
 		if j.filter.Value() != "" {
-			return out + styles.Dim().Render("0 jobs match filter "+strconv.Quote(j.filter.Value()))
+			return out + emptyState("0 jobs match filter "+strconv.Quote(j.filter.Value()))
 		}
-		return out + styles.Dim().Render("No jobs on this cluster. Submit one and it appears here within a refresh.")
+		return out + emptyState("No jobs on this cluster. Submit one and it appears here within a refresh.")
 	}
 	j.tbl.SetSize(width, height-used)
 	return out + j.tbl.View()

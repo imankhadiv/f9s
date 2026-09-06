@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -122,17 +121,16 @@ func mapJM(s string) string {
 }
 
 func (k *KubeDeploys) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("FlinkDeployments[%d]", k.tbl.Len())) +
-		styles.Dim().Render("  via kubectl · refreshes every 10s") + "\n"
+	out := titleBar(width, "FlinkDeployments", k.tbl.Len(), "via kubectl · refreshes every 10s") + "\n"
 	used := 1
 	if k.err != "" {
-		return out + styles.ErrText().Render(" ⚠ "+k.err)
+		return out + errorBanner(k.err)
 	}
 	if !k.loaded {
-		return out + styles.Dim().Render(" running kubectl get flinkdeployments -A …")
+		return out + emptyState(" running kubectl get flinkdeployments -A …")
 	}
 	if k.tbl.Len() == 0 {
-		return out + styles.Dim().Render(" No FlinkDeployments found on the current kube context.")
+		return out + emptyState(" No FlinkDeployments found on the current kube context.")
 	}
 	k.tbl.SetSize(width, height-used)
 	return out + k.tbl.View()

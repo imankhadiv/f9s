@@ -9,7 +9,6 @@ import (
 	"github.com/imankhadiv/f9s/internal/analyze"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/snapshot"
@@ -425,8 +424,9 @@ func (d *JobDetail) rebuildRows() {
 func (d *JobDetail) View(width, height int) string {
 	// Full JID here on purpose: it's what gets pasted into flink CLI commands.
 	head := styles.ViewTitle().Render(d.name) + "  " +
-		lipgloss.NewStyle().Render(d.jid) + styles.Dim().Render(fmt.Sprintf(" · %s · up %s",
-		d.job.State, model.FmtDuration(d.job.Duration)))
+		styles.Dim().Render(d.jid) + "  " +
+		styles.StateStyle(d.job.State).Render(d.job.State) +
+		styles.Dim().Render(" · up "+model.FmtDuration(d.job.Duration))
 	out := head + "\n"
 	used := 1
 	if d.showConfig && d.jobCfg != nil {

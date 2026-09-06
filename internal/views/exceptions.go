@@ -69,7 +69,7 @@ func (e *ExceptionsView) Update(msg tea.Msg) (Model, tea.Cmd) {
 func (e *ExceptionsView) render(ex model.Exceptions) string {
 	var b strings.Builder
 	if ex.RootException == "" && len(ex.History.Entries) == 0 {
-		return styles.Dim().Render("No exceptions. This job is having a good day.")
+		return emptyState("No exceptions. This job is having a good day.")
 	}
 	if ex.RootException != "" {
 		b.WriteString(styles.ErrText().Render("ROOT EXCEPTION") + "  " +
@@ -102,13 +102,13 @@ func (e *ExceptionsView) View(width, height int) string {
 	if !e.ready {
 		e.vp = viewport.New(width, height-2)
 		e.ready = true
-		e.vp.SetContent(styles.Dim().Render("Loading exceptions…"))
+		e.vp.SetContent(emptyState("Loading exceptions…"))
 	}
 	e.vp.Width = width
 	e.vp.Height = height - 2
-	out := styles.ViewTitle().Render("Exceptions "+e.name) + "\n"
+	out := titleBar(width, "Exceptions", -1, e.name) + "\n"
 	if e.err != "" {
-		out += styles.ErrText().Render("⚠ "+e.err) + "\n"
+		out += errorBanner(e.err)
 	}
 	return out + e.vp.View()
 }

@@ -162,7 +162,7 @@ func blastEvents(evs []timelineEvent) []timelineEvent {
 func (t *Timeline) render(width int) string {
 	evs := t.collect()
 	if len(evs) == 0 {
-		return styles.Dim().Render(" Nothing yet. Alerts, savepoints/stops, and AI investigations land\n here as they happen — the incident's causal chain in one view.")
+		return emptyState(" Nothing yet. Alerts, savepoints/stops, and AI investigations land\n here as they happen — the incident's causal chain in one view.")
 	}
 	var b strings.Builder
 	lastDay := ""
@@ -285,8 +285,7 @@ func reportsDir() string {
 }
 
 func (t *Timeline) View(width, height int) string {
-	head := styles.ViewTitle().Render("Timeline · "+t.deps.Ctx) +
-		styles.Dim().Render("  alerts · actions · investigations, merged") + "\n"
+	head := titleBar(width, "Timeline", -1, t.deps.Ctx+" · alerts · actions · investigations, merged") + "\n"
 	if !t.ready {
 		t.vp = viewport.New(width, height-1)
 		t.ready = true

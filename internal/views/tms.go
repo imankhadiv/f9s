@@ -71,13 +71,13 @@ func tmSortLabel(mode int) string {
 func NewTaskManagers(deps Deps) *TaskManagersView {
 	tbl := newTable([]uitable.Column{
 		{Title: "ID", Width: -1},
-		{Title: "SLOTS", Width: 7},
-		{Title: "CPU", Width: 5},
-		{Title: "PHYS MEM", Width: 9},
-		{Title: "FREE MEM", Width: 9},
-		{Title: "HEAP", Width: 6},
-		{Title: "GC/s", Width: 6},
-		{Title: "HEARTBEAT", Width: 10},
+		{Title: "SLOTS", Width: 7, Right: true},
+		{Title: "CPU", Width: 5, Right: true},
+		{Title: "PHYS MEM", Width: 9, Right: true},
+		{Title: "FREE MEM", Width: 9, Right: true},
+		{Title: "HEAP", Width: 6, Right: true},
+		{Title: "GC/s", Width: 6, Right: true},
+		{Title: "HEARTBEAT", Width: 10, Right: true},
 	})
 	return &TaskManagersView{deps: deps, tbl: tbl, heaps: map[string]tmHeapMsg{}, gc: map[string]gcSample{}, filter: newViewFilter()}
 }
@@ -249,19 +249,28 @@ func (t *TaskManagersView) rebuild() {
 }
 
 func (t *TaskManagersView) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("TaskManagers[%d]", t.tbl.Len())) +
-		styles.Dim().Render("  sort:"+tmSortLabel(t.sortMode)) + "\n"
+	switch t.sortMode {
+	case tmSortSlots:
+		t.tbl.SetSort(1, styles.SortDesc)
+	case tmSortHeap:
+		t.tbl.SetSort(5, styles.SortDesc)
+	case tmSortGC:
+		t.tbl.SetSort(6, styles.SortDesc)
+	default:
+		t.tbl.SetSort(0, styles.SortDesc)
+	}
+	out := titleBar(width, "TaskManagers", t.tbl.Len(), "sort: "+tmSortLabel(t.sortMode)) + "\n"
 	used := 1
 	if fl := t.filter.Line(); fl != "" {
 		out += fl
 		used++
 	}
 	if t.err != "" {
-		out += styles.ErrText().Render("⚠ "+t.err) + "\n"
+		out += errorBanner(t.err)
 		used++
 	}
 	if t.tbl.Len() == 0 {
-		return out + styles.Dim().Render("No TaskManagers registered — is the cluster healthy?")
+		return out + emptyState("No TaskManagers registered — is the cluster healthy?")
 	}
 	t.tbl.SetSize(width, height-used)
 	return out + t.tbl.View()

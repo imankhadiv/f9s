@@ -330,10 +330,10 @@ func (j *Jars) run(jarID, savepoint string) tea.Cmd {
 }
 
 func (j *Jars) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("Jars[%d] · %s", j.tbl.Len(), j.deps.Ctx)) + "\n"
+	out := titleBar(width, "Jars", j.tbl.Len(), j.deps.Ctx) + "\n"
 	used := 1
 	if j.err != "" {
-		out += styles.ErrText().Render("⚠ "+j.err) + "\n"
+		out += errorBanner(j.err)
 		used++
 	}
 	if fl := j.filter.Line(); fl != "" {
@@ -349,7 +349,7 @@ func (j *Jars) View(width, height int) string {
 		used++
 	}
 	if j.tbl.Len() == 0 && j.prompt == promptNone {
-		return out + styles.Dim().Render("No jars uploaded. <u> uploads a local jar; <enter> runs it;\n<S> restores it from the newest ledger savepoint — the full\nstop→fix→resume loop without leaving the terminal.")
+		return out + emptyState("No jars uploaded. <u> uploads a local jar; <enter> runs it;\n<S> restores it from the newest ledger savepoint — the full\nstop→fix→resume loop without leaving the terminal.")
 	}
 	j.tbl.SetSize(width, height-used)
 	return out + j.tbl.View()

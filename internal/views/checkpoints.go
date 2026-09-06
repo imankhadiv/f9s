@@ -34,13 +34,13 @@ type CheckpointsView struct {
 // NewCheckpoints builds the checkpoints view for one job.
 func NewCheckpoints(deps Deps, jid, name string) *CheckpointsView {
 	tbl := newTable([]uitable.Column{
-		{Title: "ID", Width: 6},
+		{Title: "ID", Width: 6, Right: true},
 		{Title: "STATUS", Width: 12},
 		{Title: "SP", Width: 3},
-		{Title: "AGE", Width: 8},
-		{Title: "DURATION", Width: 9},
-		{Title: "SIZE", Width: 9},
-		{Title: "ACK", Width: 7},
+		{Title: "AGE", Width: 8, Right: true},
+		{Title: "DURATION", Width: 9, Right: true},
+		{Title: "SIZE", Width: 9, Right: true},
+		{Title: "ACK", Width: 7, Right: true},
 		{Title: "FAILURE", Width: -1},
 	})
 	return &CheckpointsView{deps: deps, jid: jid, name: name, tbl: tbl}
@@ -131,9 +131,9 @@ func backendBadge(cfg model.CheckpointConfig) string {
 
 func (c *CheckpointsView) View(width, height int) string {
 	counts := c.cp.Counts
-	head := styles.ViewTitle().Render(fmt.Sprintf("Checkpoints[%d]", counts.Total)) + "  " +
-		styles.Dim().Render(fmt.Sprintf("completed %d · failed %d · in-progress %d · restored %d",
-			counts.Completed, counts.Failed, counts.InProgress, counts.Restored))
+	head := titleBar(width, "Checkpoints", counts.Total, fmt.Sprintf(
+		"completed %d · failed %d · in-progress %d · restored %d",
+		counts.Completed, counts.Failed, counts.InProgress, counts.Restored))
 	out := head + "\n"
 	used := 1
 	if c.cfg.Mode != "" {

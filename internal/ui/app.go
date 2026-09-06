@@ -1143,23 +1143,33 @@ func (a *App) header() string {
 	if a.cfg.Contexts[a.contextName].ReadOnly {
 		ro = styles.WarnText().Render("[RO] ")
 	}
-	left := styles.Header().Render(" f9s ") + ro + badge + styles.Dim().Render(fmt.Sprintf(
-		"│ ctx:%s │ flink %s │ slots %d/%d │ tms %d │ jobs %d",
+	left := styles.Header().Render("f9s") + "  " + ro + badge + styles.Dim().Render(fmt.Sprintf(
+		"%s · flink %s · slots %d/%d · tms %d · jobs %d",
 		a.contextName, orDash(a.ov.FlinkVersion), a.ov.SlotsAvailable, a.ov.SlotsTotal,
 		a.ov.TaskManagers, a.ov.JobsRunning))
-	right := conn + " "
+	right := conn
 	if a.fetching {
 		right = conn + " " + styles.Dim().Render(a.spin.View())
 	}
-	gap := a.width - lipgloss.Width(left) - lipgloss.Width(right) - 1
+	inner := a.width - 4 // border (2) + padding (2)
+	if inner < 1 {
+		inner = 1
+	}
+	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
-	return left + strings.Repeat(" ", gap) + right
+	line := lipgloss.NewStyle().MaxWidth(inner).Render(left + strings.Repeat(" ", gap) + right)
+	return styles.PanelBox().Width(a.width - 2).Render(line)
 }
 
-// crumbs renders the drill-down trail, current segment highlighted.
+// crumbs renders the drill-down trail once the user has drilled in; at the
+// root it returns "" because the view's own title bar already names the
+// screen (no point showing "jobs" above "JOBS").
 func (a *App) crumbs() string {
+	if len(a.stack) <= 1 {
+		return ""
+	}
 	parts := make([]string, len(a.stack))
 	for i, v := range a.stack {
 		if i == len(a.stack)-1 {
@@ -1226,7 +1236,12 @@ func (a *App) View() string {
 		return a.header() + "\n" + overlay
 	}
 	flash := a.flashLine()
-	bodyH := a.height - 3 // header + crumbs + footer
+	crumb := a.crumbs()
+	chrome := 4 // header box (3) + footer (1)
+	if crumb != "" {
+		chrome++ // breadcrumb trail (only when drilled in)
+	}
+	bodyH := a.height - chrome
 	if flash != "" {
 		bodyH--
 	}
@@ -1241,7 +1256,11 @@ func (a *App) View() string {
 	default:
 		body = a.top().View(a.width, bodyH)
 	}
-	out := a.header() + "\n" + a.crumbs() + "\n" + body + "\n"
+	out := a.header() + "\n"
+	if crumb != "" {
+		out += crumb + "\n"
+	}
+	out += body + "\n"
 	if flash != "" {
 		out += flash + "\n"
 	}

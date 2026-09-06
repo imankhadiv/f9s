@@ -29,8 +29,8 @@ func NewAlerts(deps Deps) *AlertsView {
 		{Title: "JOB", Width: 22},
 		{Title: "VERTEX", Width: -1},
 		{Title: "OPENED", Width: 8},
-		{Title: "DURATION", Width: 9},
-		{Title: "PEAK", Width: 5},
+		{Title: "DURATION", Width: 9, Right: true},
+		{Title: "PEAK", Width: 5, Right: true},
 		{Title: "AT FIRE", Width: 10},
 	})
 	return &AlertsView{deps: deps, tbl: tbl, filter: newViewFilter()}
@@ -127,15 +127,14 @@ func (a *AlertsView) View(width, height int) string {
 	if a.deps.Sentinel != nil {
 		openN = len(a.deps.Sentinel.OpenAlerts())
 	}
-	out := styles.ViewTitle().Render("Alerts["+strconv.Itoa(a.tbl.Len())+"]") +
-		styles.Dim().Render("  firing: "+strconv.Itoa(openN)+" · fire/clear after 3 samples") + "\n"
+	out := titleBar(width, "Alerts", a.tbl.Len(), "firing: "+strconv.Itoa(openN)+" · fire/clear after 3 samples") + "\n"
 	used := 1
 	if fl := a.filter.Line(); fl != "" {
 		out += fl
 		used++
 	}
 	if a.tbl.Len() == 0 && a.filter.input.Value() == "" {
-		return out + styles.Dim().Render(" No alerts. The sentinel samples backpressure every 15s on running jobs.")
+		return out + emptyState(" No alerts. The sentinel samples backpressure every 15s on running jobs.")
 	}
 	a.tbl.SetSize(width, height-used)
 	return out + a.tbl.View()

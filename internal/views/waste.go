@@ -41,10 +41,10 @@ type WasteFinder struct {
 func NewWasteFinder(deps Deps) *WasteFinder {
 	tbl := newTable([]uitable.Column{
 		{Title: "JOB", Width: -1},
-		{Title: "SLOTS", Width: 6},
-		{Title: "BUSY", Width: 6},
-		{Title: "IDLE SLOTS", Width: 11},
-		{Title: "$/DAY IDLE", Width: 11},
+		{Title: "SLOTS", Width: 6, Right: true},
+		{Title: "BUSY", Width: 6, Right: true},
+		{Title: "IDLE SLOTS", Width: 11, Right: true},
+		{Title: "$/DAY IDLE", Width: 11, Right: true},
 	})
 	return &WasteFinder{deps: deps, tbl: tbl, filter: newViewFilter()}
 }
@@ -148,23 +148,22 @@ func (w *WasteFinder) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (w *WasteFinder) View(width, height int) string {
-	sub := "  reclaim candidates in red"
+	sub := "reclaim candidates in red"
 	if !w.hasCost {
 		sub += " · set costPerSlotHour for $/day"
 	}
-	out := styles.ViewTitle().Render(fmt.Sprintf("Waste finder[%d] · %s", w.tbl.Len(), w.deps.Ctx)) +
-		styles.Dim().Render(sub) + "\n"
+	out := titleBar(width, "Waste finder", w.tbl.Len(), w.deps.Ctx+" · "+sub) + "\n"
 	used := 1
 	if fl := w.filter.Line(); fl != "" {
 		out += fl
 		used++
 	}
 	if w.err != "" {
-		out += styles.ErrText().Render("⚠ "+w.err) + "\n"
+		out += errorBanner(w.err)
 		used++
 	}
 	if w.tbl.Len() == 0 && w.err == "" {
-		return out + styles.Dim().Render(" no running jobs holding slots")
+		return out + emptyState(" no running jobs holding slots")
 	}
 	w.tbl.SetSize(width, height-used)
 	return out + w.tbl.View()

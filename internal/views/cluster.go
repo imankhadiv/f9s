@@ -55,9 +55,9 @@ func NewCluster(deps Deps) *ClusterView {
 	tbl := newTable([]uitable.Column{
 		{Title: "COMPONENT", Width: 12},
 		{Title: "ADDRESS", Width: -1},
-		{Title: "SLOTS", Width: 7},
-		{Title: "CPU", Width: 5},
-		{Title: "HEAP", Width: 6},
+		{Title: "SLOTS", Width: 7, Right: true},
+		{Title: "CPU", Width: 5, Right: true},
+		{Title: "HEAP", Width: 6, Right: true},
 		{Title: "STATUS", Width: 12},
 	})
 	return &ClusterView{deps: deps, tbl: tbl, stats: map[string]compStat{}, filter: newViewFilter()}
@@ -286,14 +286,14 @@ func (c *ClusterView) rebuild() {
 }
 
 func (c *ClusterView) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("Cluster — JobManager + TaskManagers[%d]", len(c.tms))) + "\n"
+	out := titleBar(width, "Cluster", c.tbl.Len(), "JobManager + TaskManagers") + "\n"
 	used := 1
 	if fl := c.filter.Line(); fl != "" {
 		out += fl
 		used++
 	}
 	if c.err != "" {
-		out += styles.ErrText().Render("⚠ "+c.err) + "\n"
+		out += errorBanner(c.err)
 		used++
 	}
 	c.tbl.SetSize(width, height-used)

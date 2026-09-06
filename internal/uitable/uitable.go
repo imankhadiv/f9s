@@ -16,10 +16,12 @@ import (
 const colGap = 2
 
 // Column is a table column; Width < 0 marks the one flexible column that
-// absorbs the remaining terminal width.
+// absorbs the remaining terminal width. Right right-aligns the column (for
+// numeric values), header included.
 type Column struct {
 	Title string
 	Width int
+	Right bool
 }
 
 // Cell is one table cell: plain text plus the style applied after layout.
@@ -40,15 +42,17 @@ type Model struct {
 	BorderStyle   lipgloss.Style
 	SelectedStyle lipgloss.Style
 
-	cols   []Column
-	rows   [][]Cell
-	keys   []string // optional per-row identity for cursor stability
-	filter string
-	vis    []int // visible row indexes under the filter; nil = all rows
-	cursor int   // position within the visible list
-	offset int
-	width  int
-	height int
+	cols    []Column
+	rows    [][]Cell
+	keys    []string // optional per-row identity for cursor stability
+	sortCol int      // active sort column, -1 for none
+	sortGly string   // sort-arrow glyph appended to that column's title
+	filter  string
+	vis     []int // visible row indexes under the filter; nil = all rows
+	cursor  int   // position within the visible list
+	offset  int
+	width   int
+	height  int
 }
 
 // visibleIdx maps a visible position to its original row index.
@@ -110,11 +114,17 @@ func (m *Model) refilter() {
 
 // New builds a table with the given columns.
 func New(cols []Column) *Model {
-	return &Model{cols: cols}
+	return &Model{cols: cols, sortCol: -1}
 }
 
 // SetColumns replaces the column set (e.g. on resize).
 func (m *Model) SetColumns(cols []Column) { m.cols = cols }
+
+// SetSort marks the active sort column and the arrow glyph to show in its
+// header (pass an empty glyph, or col < 0, to clear it).
+func (m *Model) SetSort(col int, glyph string) {
+	m.sortCol, m.sortGly = col, glyph
+}
 
 // SetRows replaces the data and clamps the cursor.
 func (m *Model) SetRows(rows [][]Cell) {
@@ -225,11 +235,21 @@ func (m *Model) resolved() []int {
 }
 
 // fit truncates (with ellipsis) or pads s to exactly w display cells.
-func fit(s string, w int) string {
+func fit(s string, w int) string { return fitAlign(s, w, false) }
+
+// fitAlign is fit with optional right-alignment (pad on the left).
+func fitAlign(s string, w int, right bool) string {
+	if w < 0 {
+		w = 0
+	}
 	if runewidth.StringWidth(s) > w {
 		s = runewidth.Truncate(s, w, "…")
 	}
-	return s + strings.Repeat(" ", w-runewidth.StringWidth(s))
+	pad := strings.Repeat(" ", w-runewidth.StringWidth(s))
+	if right {
+		return pad + s
+	}
+	return s + pad
 }
 
 // View renders the table padded to its full height so footers stay pinned.
@@ -239,7 +259,11 @@ func (m *Model) View() string {
 
 	titles := make([]string, len(m.cols))
 	for i, c := range m.cols {
-		titles[i] = fit(c.Title, ws[i])
+		t := c.Title
+		if i == m.sortCol && m.sortGly != "" {
+			t += m.sortGly
+		}
+		titles[i] = fitAlign(t, ws[i], c.Right)
 	}
 	lines := []string{
 		" " + m.HeaderStyle.Render(strings.Join(titles, gap)),
@@ -268,13 +292,13 @@ func (m *Model) View() string {
 		if r == m.cursor {
 			// selection band: style the whole plain line so it never breaks
 			for i := range m.cols {
-				parts[i] = fit(cellText(cells, i), ws[i])
+				parts[i] = fitAlign(cellText(cells, i), ws[i], m.cols[i].Right)
 			}
 			lines = append(lines, m.SelectedStyle.Render(" "+strings.Join(parts, gap)))
 			continue
 		}
 		for i := range m.cols {
-			parts[i] = cells[min(i, len(cells)-1)].Style.Render(fit(cellText(cells, i), ws[i]))
+			parts[i] = cells[min(i, len(cells)-1)].Style.Render(fitAlign(cellText(cells, i), ws[i], m.cols[i].Right))
 		}
 		lines = append(lines, " "+strings.Join(parts, gap))
 	}

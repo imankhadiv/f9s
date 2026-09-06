@@ -3,7 +3,15 @@
 package styles
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
+)
+
+// Sort-indicator glyphs for the active table column.
+const (
+	SortDesc = "▾"
+	SortAsc  = "▴"
 )
 
 // The palette is a set of semantic tokens (DESIGN.md #14). Defaults adapt
@@ -71,6 +79,112 @@ func ModalBox() lipgloss.Style {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(red).
 		Padding(1, 3)
+}
+
+// Accent styles text in the brand accent without bold.
+func Accent() lipgloss.Style { return lipgloss.NewStyle().Foreground(coral) }
+
+// PanelBox is a rounded, dim-bordered container for header chrome and
+// dashboard tiles. Width sets the content area (add 2 for the border).
+func PanelBox() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(dim).
+		Padding(0, 1)
+}
+
+// Panel renders a titled, rounded tile of the given TOTAL width. The title
+// sits in accent bold above the body; both wrap/clip to the inner width.
+func Panel(title, body string, width int) string {
+	if width < 4 {
+		width = 4
+	}
+	content := body
+	if title != "" {
+		content = Accent().Bold(true).Render(title) + "\n" + body
+	}
+	return PanelBox().Width(width - 2).Render(content)
+}
+
+// Severity picks OK/Warn/Err by how far a 0..1 (or 0..100) value has climbed
+// past the warn and crit thresholds — the one place the "how hot is it"
+// ladder lives, so views stop re-implementing it.
+func Severity(v, warnAt, critAt float64) lipgloss.Style {
+	switch {
+	case v >= critAt:
+		return ErrText()
+	case v >= warnAt:
+		return WarnText()
+	default:
+		return OKText()
+	}
+}
+
+// BPStyle colors a backpressure level word (ok / low / high).
+func BPStyle(level string) lipgloss.Style {
+	switch strings.ToLower(level) {
+	case "high":
+		return ErrText()
+	case "low":
+		return WarnText()
+	case "ok", "":
+		return OKText()
+	default:
+		return Dim()
+	}
+}
+
+var sparkRunes = []rune("▁▂▃▄▅▆▇█")
+
+// Spark renders a unicode sparkline; negative samples show as a dim dot.
+func Spark(vals []float64) string {
+	if len(vals) == 0 {
+		return ""
+	}
+	max := 0.0
+	for _, v := range vals {
+		if v > max {
+			max = v
+		}
+	}
+	var b strings.Builder
+	for _, v := range vals {
+		if v < 0 {
+			b.WriteString(Dim().Render("·"))
+			continue
+		}
+		idx := 0
+		if max > 0 {
+			idx = int(v / max * float64(len(sparkRunes)-1))
+			if idx < 0 {
+				idx = 0
+			}
+			if idx >= len(sparkRunes) {
+				idx = len(sparkRunes) - 1
+			}
+		}
+		b.WriteRune(sparkRunes[idx])
+	}
+	return b.String()
+}
+
+// Gauge renders a fixed-width fill bar, severity-colored by fraction.
+func Gauge(frac float64, w int, warnAt, critAt float64) string {
+	if w < 1 {
+		w = 1
+	}
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	fill := int(frac*float64(w) + 0.5)
+	if fill > w {
+		fill = w
+	}
+	return Severity(frac, warnAt, critAt).Render(strings.Repeat("█", fill)) +
+		Dim().Render(strings.Repeat("░", w-fill))
 }
 
 // StateStyle returns the color for a Flink state word (job, checkpoint, or

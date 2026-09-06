@@ -29,7 +29,7 @@ func NewInvestigations(deps Deps) *Investigations {
 		{Title: "WHEN", Width: 8},
 		{Title: "JOB", Width: -1},
 		{Title: "TRIGGER", Width: 13},
-		{Title: "STEPS", Width: 5},
+		{Title: "STEPS", Width: 5, Right: true},
 		{Title: "STATUS", Width: 8},
 	})
 	return &Investigations{deps: deps, tbl: tbl}
@@ -110,7 +110,7 @@ func (v *Investigations) View(width, height int) string {
 			b.WriteString(" " + styles.WarnText().Render(s) + "\n")
 		}
 		if r.Err != "" {
-			b.WriteString("\n" + styles.ErrText().Render("⚠ "+r.Err) + "\n")
+			b.WriteString("\n" + errorBanner(r.Err))
 		}
 		if r.Answer != "" {
 			b.WriteString("\n" + styles.OKText().Render("DIAGNOSIS") + "\n\n" + r.Answer + "\n")
@@ -125,10 +125,9 @@ func (v *Investigations) View(width, height int) string {
 		return styles.ViewTitle().Render("Investigation · "+r.Job) + "\n" + v.vp.View()
 	}
 	v.rebuild()
-	out := styles.ViewTitle().Render("Investigations["+strconv.Itoa(v.tbl.Len())+"]") +
-		styles.Dim().Render("  auto-run on alerts (watch mode) · queued, never interrupting") + "\n"
+	out := titleBar(width, "Investigations", v.tbl.Len(), "auto-run on alerts (watch mode) · queued, never interrupting") + "\n"
 	if v.tbl.Len() == 0 {
-		return out + styles.Dim().Render(" None yet. Enable with ai: { watch: true } — alerts then trigger\n background investigations (deduped 30m, max 4/hour).")
+		return out + emptyState(" None yet. Enable with ai: { watch: true } — alerts then trigger\n background investigations (deduped 30m, max 4/hour).")
 	}
 	v.tbl.SetSize(width, height-1)
 	return out + v.tbl.View()

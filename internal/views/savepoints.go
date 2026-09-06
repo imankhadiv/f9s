@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/aymanbagabas/go-osc52/v2"
@@ -110,12 +109,12 @@ func (s *Savepoints) selectedEntry() (ledger.Entry, bool) {
 }
 
 func (s *Savepoints) View(width, height int) string {
-	out := styles.ViewTitle().Render(fmt.Sprintf("Savepoint ledger[%d] · %s", s.tbl.Len(), s.deps.Ctx)) + "\n"
+	out := titleBar(width, "Savepoint ledger", s.tbl.Len(), s.deps.Ctx) + "\n"
 	if s.tbl.Len() == 0 {
 		if s.err != "" {
-			return out + styles.ErrText().Render("⚠ "+s.err)
+			return out + errorBanner(s.err)
 		}
-		return out + styles.Dim().Render("No savepoints recorded yet. Trigger one with <s> on a job —\nf9s remembers every path so you don't have to.")
+		return out + emptyState("No savepoints recorded yet. Trigger one with <s> on a job —\nf9s remembers every path so you don't have to.")
 	}
 	used := 1
 	if fl := s.filter.Line(); fl != "" {
@@ -123,7 +122,7 @@ func (s *Savepoints) View(width, height int) string {
 		used++
 	}
 	if s.err != "" {
-		out += styles.ErrText().Render("⚠ "+s.err) + "\n"
+		out += errorBanner(s.err)
 		used++
 	}
 	if s.showCmd {

@@ -52,7 +52,7 @@ func NewArchaeology(deps Deps, name string) *Archaeology {
 		{Title: "SOURCE", Width: 8},
 		{Title: "EVENT", Width: 11},
 		{Title: "JID", Width: 34},
-		{Title: "DURATION", Width: 9},
+		{Title: "DURATION", Width: 9, Right: true},
 		{Title: "SAVEPOINT", Width: -1},
 	})
 	return &Archaeology{deps: deps, name: name, tbl: tbl}
@@ -168,19 +168,18 @@ func (a *Archaeology) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (a *Archaeology) View(width, height int) string {
-	sub := "  live · history server · savepoint ledger, fused"
+	sub := "live · history server · savepoint ledger, fused"
 	if a.hsOff {
-		sub = "  live + ledger only — add historyServer: to this context for completed runs"
+		sub = "live + ledger only — add historyServer: to this context for completed runs"
 	}
-	out := styles.ViewTitle().Render(fmt.Sprintf("Archaeology · %s [%d]", a.name, a.tbl.Len())) +
-		styles.Dim().Render(sub) + "\n"
+	out := titleBar(width, "Archaeology", a.tbl.Len(), a.name+" · "+sub) + "\n"
 	used := 1
 	if a.err != "" {
-		out += styles.ErrText().Render("⚠ "+a.err) + "\n"
+		out += errorBanner(a.err)
 		used++
 	}
 	if a.tbl.Len() == 0 {
-		return out + styles.Dim().Render(" no recorded runs for this job name")
+		return out + emptyState(" no recorded runs for this job name")
 	}
 	a.tbl.SetSize(width, height-used)
 	return out + a.tbl.View()

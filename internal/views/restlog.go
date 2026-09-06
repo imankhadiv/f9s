@@ -2,7 +2,6 @@ package views
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,7 +27,7 @@ func NewRestLog(deps Deps) *RestLog {
 		{Title: "METHOD", Width: 6},
 		{Title: "PATH", Width: -1},
 		{Title: "STATUS", Width: 14},
-		{Title: "DUR", Width: 7},
+		{Title: "DUR", Width: 7, Right: true},
 	})
 	return &RestLog{deps: deps, tbl: tbl}
 }
@@ -71,10 +70,9 @@ func (r *RestLog) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (r *RestLog) View(width, height int) string {
-	out := styles.ViewTitle().Render("REST calls["+strconv.Itoa(r.tbl.Len())+"]") +
-		styles.Dim().Render("  every request f9s makes, newest first") + "\n"
+	out := titleBar(width, "REST calls", r.tbl.Len(), "every request f9s makes, newest first") + "\n"
 	if r.tbl.Len() == 0 {
-		return out + styles.Dim().Render(" No calls recorded yet.")
+		return out + emptyState(" No calls recorded yet.")
 	}
 	r.tbl.SetSize(width, height-1)
 	return out + r.tbl.View()
