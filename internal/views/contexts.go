@@ -52,6 +52,7 @@ func (c *Contexts) Filtering() bool { return false }
 func (c *Contexts) Bindings() []key.Binding {
 	return []key.Binding{
 		binding("enter", "enter", "switch to context"),
+		binding("1-9", "1-9", "quick switch"),
 		binding("D", "D", "diff config vs active"),
 		binding("esc", "esc", "back"),
 	}
@@ -78,11 +79,14 @@ func (c *Contexts) Refresh() tea.Cmd {
 
 func (c *Contexts) rebuild() {
 	rows := make([][]uitable.Cell, 0, len(c.names))
-	for _, name := range c.names {
+	for i, name := range c.names {
 		cctx := c.deps.Cfg.Contexts[name]
 		display := name
 		if name == c.deps.Ctx {
 			display = "* " + name
+		}
+		if i < 9 { // quick-switch digit hint
+			display = strconv.Itoa(i+1) + " " + display
 		}
 		status := uitable.Styled("probing…", styles.Dim())
 		version, jobs, tms := "-", "-", "-"
@@ -118,6 +122,13 @@ func (c *Contexts) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.String() == "enter" && len(c.names) > 0 {
 			name := c.names[c.tbl.Cursor()]
 			return c, func() tea.Msg { return SwitchContextMsg{Name: name} }
+		}
+		// digit 1-9 jumps straight to that context (k9s-style quick switch)
+		if s := msg.String(); len(s) == 1 && s >= "1" && s <= "9" {
+			if i := int(s[0] - '1'); i < len(c.names) {
+				name := c.names[i]
+				return c, func() tea.Msg { return SwitchContextMsg{Name: name} }
+			}
 		}
 		if msg.String() == "D" && len(c.names) > 0 {
 			other := c.names[c.tbl.Cursor()]

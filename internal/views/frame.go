@@ -54,3 +54,15 @@ func errorBanner(msg string) string {
 func emptyState(msg string) string {
 	return styles.Dim().Render(msg)
 }
+
+// centered places content in the middle of a width×height box — for full-view
+// loading and empty states so a bare view doesn't dump text in the top-left.
+func centered(width, height int, s string) string {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, s)
+}

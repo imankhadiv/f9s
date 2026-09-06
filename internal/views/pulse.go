@@ -128,10 +128,11 @@ func gauge(used, total int, width int) string {
 func (p *Pulse) View(width, height int) string {
 	head := styles.ViewTitle().Render("Cluster pulse · " + p.deps.Ctx)
 	if !p.loaded {
+		msg := styles.Dim().Render("reading the cluster…")
 		if p.d.err != nil {
-			return head + "\n" + styles.ErrText().Render(" ⚠ "+p.d.err.Error())
+			msg = styles.ErrText().Render("⚠ " + p.d.err.Error())
 		}
-		return head + "\n" + styles.Dim().Render(" reading the cluster…")
+		return head + "\n" + centered(width, height-2, msg)
 	}
 	d := p.d
 	open := 0

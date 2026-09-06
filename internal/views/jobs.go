@@ -513,7 +513,7 @@ func (j *Jobs) View(width, height int) string {
 			if j.filter.Value() != "" {
 				return out + emptyState("0 jobs match filter "+strconv.Quote(j.filter.Value()))
 			}
-			return out + emptyState("No jobs on this cluster. Submit one and it appears here within a refresh.")
+			return centered(iw, ih, emptyState("No jobs on this cluster.\nSubmit one and it appears here within a refresh."))
 		}
 		j.tbl.SetSize(iw, ih-used)
 		return out + j.tbl.View()
