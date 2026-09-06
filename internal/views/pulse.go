@@ -117,19 +117,12 @@ func pushCap(s []float64, v float64, n int) []float64 {
 }
 
 // gauge renders a proportional bar with severity coloring.
+// gauge delegates to the shared widget; an unknown total renders empty.
 func gauge(used, total int, width int) string {
 	if total <= 0 {
 		return styles.Dim().Render(strings.Repeat("░", width))
 	}
-	pct := float64(used) / float64(total)
-	n := int(pct * float64(width))
-	st := styles.OKText()
-	if pct >= 0.9 {
-		st = styles.ErrText()
-	} else if pct >= 0.75 {
-		st = styles.WarnText()
-	}
-	return st.Render(strings.Repeat("█", n)) + styles.Dim().Render(strings.Repeat("░", width-n))
+	return styles.Gauge(float64(used)/float64(total), width, 0.75, 0.90)
 }
 
 func (p *Pulse) View(width, height int) string {

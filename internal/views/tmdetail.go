@@ -243,25 +243,15 @@ func memRow(label string, used, total int64, unit string, note string) string {
 	if total <= 0 {
 		return ""
 	}
-	pct := int(float64(used) / float64(total) * 100)
-	st := styles.OKText()
-	switch {
-	case pct >= 90:
-		st = styles.ErrText()
-	case pct >= 75:
-		st = styles.WarnText()
-	}
+	frac := float64(used) / float64(total)
+	pct := int(frac * 100)
 	const w = 22
-	filled := pct * w / 100
-	if filled > w {
-		filled = w
-	}
-	gauge := strings.Repeat("▓", filled) + strings.Repeat("░", w-filled)
+	gauge := styles.Gauge(frac, w, 0.75, 0.90)
 	amounts := fmt.Sprintf("%s / %s", model.FmtBytes(used), model.FmtBytes(total))
 	if unit == "segs" {
 		amounts = fmt.Sprintf("%d / %d segs", used, total)
 	}
-	line := fmt.Sprintf(" %-17s %s %3d%%  %s", label, st.Render(gauge), pct, amounts)
+	line := fmt.Sprintf(" %-17s %s %3d%%  %s", label, gauge, pct, amounts)
 	if note != "" {
 		line += styles.Dim().Render("  " + note)
 	}
