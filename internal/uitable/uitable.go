@@ -6,11 +6,13 @@
 package uitable
 
 import (
+	"regexp"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
+	"github.com/sahilm/fuzzy"
 )
 
 const colGap = 2
@@ -103,14 +105,48 @@ func (m *Model) refilter() {
 		return
 	}
 	m.vis = []int{} // non-nil: an empty result means "nothing matches"
+	match := m.matcher()
 	for i, row := range m.rows {
-		for _, c := range row {
-			if strings.Contains(strings.ToLower(c.Text), m.filter) {
-				m.vis = append(m.vis, i)
-				break
-			}
+		hay := rowHaystack(row)
+		if match(hay) {
+			m.vis = append(m.vis, i)
 		}
 	}
+}
+
+// matcher parses the filter query into a predicate. Prefixes: "!" inverts,
+// "-f " fuzzy-matches; a query with regex metacharacters compiles as a
+// case-insensitive regexp (falling back to substring if it won't compile);
+// everything else is a plain substring — k9s-grade / filtering.
+func (m *Model) matcher() func(string) bool {
+	q := m.filter // already lowercased by SetFilter
+	inverse := false
+	if strings.HasPrefix(q, "!") {
+		inverse, q = true, q[1:]
+	}
+	base := func(hay string) bool { return strings.Contains(hay, q) }
+	switch {
+	case strings.HasPrefix(q, "-f "):
+		pat := strings.TrimSpace(q[3:])
+		base = func(hay string) bool { return len(fuzzy.Find(pat, []string{hay})) > 0 }
+	case strings.ContainsAny(q, `.*+?()[]{}|^$\`):
+		if re, err := regexp.Compile("(?i)" + q); err == nil {
+			base = func(hay string) bool { return re.MatchString(hay) }
+		}
+	}
+	if inverse {
+		return func(hay string) bool { return !base(hay) }
+	}
+	return base
+}
+
+// rowHaystack joins a row's cells into one lowercased string to match against.
+func rowHaystack(row []Cell) string {
+	parts := make([]string, len(row))
+	for i, c := range row {
+		parts[i] = c.Text
+	}
+	return strings.ToLower(strings.Join(parts, " "))
 }
 
 // New builds a table with the given columns.
