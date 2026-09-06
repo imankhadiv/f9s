@@ -8,6 +8,11 @@ through the Web UI.
 
 ![f9s demo](vhs/demo.gif)
 
+**At-a-glance cluster health** — `:pulse` folds slots, job mix, throughput,
+backpressure, checkpoints, and alerts into one panel with a single verdict:
+
+![Cluster pulse dashboard](vhs/dashboard.png)
+
 ## Why not just the Flink Web UI?
 
 The dashboard is fine at watching one job. Operating is a different sport:
