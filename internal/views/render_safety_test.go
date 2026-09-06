@@ -43,6 +43,7 @@ func TestViewsRenderSafelyAtAnySize(t *testing.T) {
 		"watermarks":     func() Model { return NewWatermarks(deps, "j1", "job") },
 		"subtasks":       func() Model { return NewSubtasks(deps, "j1", "v1", "vtx") },
 		"skewdetail":     func() Model { return NewSkewDetail(deps, "j1", "v1", "vtx", 4, true) },
+		"describe":       func() Model { return NewDescribe(deps, "obj", map[string]any{"name": "x", "n": 1}) },
 		"askjob":         func() Model { return NewAskView(deps, "j1", "job", nil, "test/model") },
 		"askcluster":     func() Model { return NewAskView(deps, "", "", nil, "test/model") },
 		"cluster":        func() Model { return NewCluster(deps) },

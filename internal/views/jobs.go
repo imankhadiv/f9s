@@ -138,7 +138,8 @@ func (j *Jobs) Bindings() []key.Binding {
 		binding("L", "L", "job logs (merged TMs)"),
 		binding("h", "h", "archaeology"),
 		binding("P", "P", "cluster pulse"),
-		binding("y", "y", "copy jid"),
+		binding("y", "y", "describe"),
+		binding("Y", "Y", "copy jid"),
 		binding("/", "/", "filter"),
 	}
 	for _, pl := range j.deps.Plugins {
@@ -266,6 +267,10 @@ func (j *Jobs) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case "P":
 			return j, push(NewPulse(j.deps))
 		case "y":
+			if job, ok := j.selected(); ok {
+				return j, push(NewDescribe(j.deps, job.Name, job))
+			}
+		case "Y":
 			if job, ok := j.selected(); ok {
 				_, _ = osc52.New(job.JID).WriteTo(os.Stderr)
 				return j, flash("jid copied: " + job.JID)

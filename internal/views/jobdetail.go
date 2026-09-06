@@ -107,6 +107,7 @@ func (d *JobDetail) Bindings() []key.Binding {
 		binding("t", "t", "subtasks"),
 		binding("R", "R", "rescale vertex"),
 		binding("d", "d", "skew distribution"),
+		binding("y", "y", "describe"),
 		binding("esc", "esc", "back"),
 	}
 }
@@ -265,6 +266,8 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			vt := d.job.Vertices[d.tbl.Cursor()]
 			return d, push(NewSubtasks(d.deps, d.jid, vt.ID, vt.Name))
+		case "y":
+			return d, push(NewDescribe(d.deps, d.name, d.job))
 		case "d":
 			if len(d.job.Vertices) == 0 {
 				return d, nil

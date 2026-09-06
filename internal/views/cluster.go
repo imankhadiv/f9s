@@ -72,7 +72,8 @@ func (c *ClusterView) Bindings() []key.Binding {
 		binding("l", "l", "logs"),
 		binding("c", "c", "config"),
 		binding("/", "/", "filter"),
-		binding("y", "y", "copy address"),
+		binding("y", "y", "describe"),
+		binding("Y", "Y", "copy address"),
 		binding("esc", "esc", "back"),
 	}
 }
@@ -175,6 +176,11 @@ func (c *ClusterView) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return c, flash("no config page for a TaskManager — enter opens its detail")
 		case "y":
+			if tm, ok := c.selectedTM(); ok {
+				return c, push(NewDescribe(c.deps, "TaskManager "+tm.ID, tm))
+			}
+			return c, push(NewDescribe(c.deps, "JobManager", c.jm))
+		case "Y":
 			addr := c.jmAddress()
 			if tm, ok := c.selectedTM(); ok {
 				addr = tm.ID

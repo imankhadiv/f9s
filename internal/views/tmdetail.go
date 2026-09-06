@@ -66,6 +66,7 @@ func (t *TMDetail) Bindings() []key.Binding {
 		binding("l", "l", "toggle log"),
 		binding("T", "T", "thread dump"),
 		binding("F", "F", "log files"),
+		binding("y", "y", "describe"),
 		binding("o", "o", "stdout"),
 		binding("up", "↑↓/pgup", "scroll log"),
 		binding("esc", "esc", "back"),
@@ -195,6 +196,9 @@ func (t *TMDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		if msg.String() == "F" {
 			return t, push(NewTMLogFiles(t.deps, t.id))
+		}
+		if msg.String() == "y" {
+			return t, push(NewDescribe(t.deps, "TaskManager "+t.id, t.tm))
 		}
 		if msg.String() == "o" {
 			cl := t.deps.CL
