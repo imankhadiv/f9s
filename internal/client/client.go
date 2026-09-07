@@ -16,6 +16,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -810,6 +811,71 @@ func (c *Client) VertexSubtaskRecords(jid, vid string, parallelism int) ([]float
 		return in, nil
 	}
 	return outR, nil
+}
+
+// SubtaskPressure is the per-subtask backpressure fingerprint for one vertex:
+// the busy/backpressured/idle time trio (0..1000 ms/s, they roughly sum to a
+// second) plus the network buffer-pool usages (0..1). The pools pinpoint the
+// TRUE backpressure edge that the coarse per-vertex level cannot — outPool→1
+// means this subtask's output is blocked (downstream slow); inPool→1 means its
+// input is starved (upstream slow). Each slice is indexed by subtask.
+type SubtaskPressure struct {
+	Busy          []float64
+	Backpressured []float64
+	Idle          []float64
+	InPool        []float64
+	OutPool       []float64
+}
+
+// VertexSubtaskPressure fetches the backpressure fingerprint for every subtask
+// of a vertex in one request.
+func (c *Client) VertexSubtaskPressure(jid, vid string, parallelism int) (SubtaskPressure, error) {
+	sp := SubtaskPressure{
+		Busy:          make([]float64, parallelism),
+		Backpressured: make([]float64, parallelism),
+		Idle:          make([]float64, parallelism),
+		InPool:        make([]float64, parallelism),
+		OutPool:       make([]float64, parallelism),
+	}
+	if parallelism < 1 {
+		return sp, nil
+	}
+	metrics := map[string][]float64{
+		"busyTimeMsPerSecond":          sp.Busy,
+		"backPressuredTimeMsPerSecond": sp.Backpressured,
+		"idleTimeMsPerSecond":          sp.Idle,
+		"inPoolUsage":                  sp.InPool,
+		"outPoolUsage":                 sp.OutPool,
+	}
+	keys := make([]string, 0, parallelism*len(metrics))
+	for i := 0; i < parallelism; i++ {
+		for name := range metrics {
+			keys = append(keys, fmt.Sprintf("%d.%s", i, name))
+		}
+	}
+	var ms []model.Metric
+	if err := c.get("/jobs/"+jid+"/vertices/"+vid+"/metrics?get="+strings.Join(keys, ","), &ms); err != nil {
+		return sp, err
+	}
+	for _, m := range ms {
+		dot := strings.IndexByte(m.ID, '.')
+		if dot < 0 {
+			continue
+		}
+		idx, err := strconv.Atoi(m.ID[:dot])
+		if err != nil || idx >= parallelism {
+			continue
+		}
+		dst, ok := metrics[m.ID[dot+1:]]
+		if !ok {
+			continue
+		}
+		var val float64
+		if _, err := fmt.Sscanf(m.Value, "%g", &val); err == nil {
+			dst[idx] = val
+		}
+	}
+	return sp, nil
 }
 
 // VertexWatermark returns the vertex's minimum currentInputWatermark across
