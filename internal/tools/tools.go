@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/imankhadiv/f9s/internal/analyze"
@@ -277,6 +279,45 @@ func New(cl *client.Client, contextName string) *Registry {
 					return "", err
 				}
 				return "cancel requested for " + args["jid"], nil
+			},
+		},
+		{
+			Name: "rescale_vertex",
+			Description: "Rescale ONE vertex to a new parallelism via FLIP-291 resource requirements " +
+				"(requires jobmanager.scheduler: adaptive). The job restarts in place from its latest " +
+				"checkpoint and the scheduler applies the change within about a minute — no savepoint " +
+				"needed. Identify the vertex by its name (as shown in the evidence bundle) or its vertex id.",
+			Params: []Param{jidParam,
+				{Name: "vertex", Description: "vertex name (from the evidence) or vertex id", Required: true},
+				{Name: "parallelism", Description: "new target parallelism, a positive integer", Required: true}},
+			Mutating: true,
+			Run: func(ctx context.Context, args map[string]string) (string, error) {
+				p, err := strconv.Atoi(strings.TrimSpace(args["parallelism"]))
+				if err != nil || p < 1 {
+					return "", fmt.Errorf("parallelism must be a positive integer, got %q", args["parallelism"])
+				}
+				if ok, aerr := cl.AdaptiveScheduler(); aerr == nil && !ok {
+					return "", fmt.Errorf("cluster is not running the adaptive scheduler (set jobmanager.scheduler: adaptive) — in-place rescale is unavailable")
+				}
+				job, err := cl.Job(args["jid"])
+				if err != nil {
+					return "", err
+				}
+				vid, name := "", strings.TrimSpace(args["vertex"])
+				for _, v := range job.Vertices {
+					if v.ID == name || v.Name == name {
+						vid, name = v.ID, v.Name
+						break
+					}
+				}
+				if vid == "" {
+					return "", fmt.Errorf("no vertex named or id'd %q in job %s", args["vertex"], args["jid"])
+				}
+				if err := cl.SetVertexParallelism(args["jid"], vid, p); err != nil {
+					return "", err
+				}
+				record(args["jid"], "rescale", fmt.Sprintf("%s→%d", name, p))
+				return fmt.Sprintf("rescale requested: %s → %d (adaptive scheduler restarts the job from its latest checkpoint and converges within ~1 minute)", name, p), nil
 			},
 		},
 	}}

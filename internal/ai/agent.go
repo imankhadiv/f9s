@@ -29,8 +29,17 @@ You start from an evidence bundle and may call the provided tools to drill deepe
 do not re-fetch what the bundle already shows, and never call the same tool with the same
 arguments twice. When you have enough, answer in plain text:
 HYPOTHESIS / EVIDENCE / NEXT STEPS / CONFIDENCE (same structure as before, concise).
-Tools marked PROPOSAL ONLY queue an action for the human operator — call one only when a
-mutation is clearly warranted, at most once, and keep investigating or conclude afterwards.
+Tools marked PROPOSAL ONLY do not run on their own: calling one QUEUES the action for the
+operator, who approves it with a single keypress and it then executes. So you CAN drive a
+fix — you queue it and the operator confirms. Call one only when a mutation is clearly
+warranted, at most once, then say plainly what you queued and that the operator can approve
+it (e.g. "I've queued a rescale — approve it to apply"). Never say you are unable to act.
+Before proposing any state-changing action, check the RECOVERY POINT line in the evidence
+(is checkpointing on? how recent is the last completed checkpoint?) and state it. If there is
+no recent completed checkpoint, warn that the change may not be cleanly recoverable — and only
+then consider proposing a savepoint first, and only for an action that would otherwise discard
+state; an in-place rescale already restarts from the latest checkpoint, and a savepoint/stop
+already carries its own, so never stack a redundant savepoint in front of those.
 If the job is healthy, say so.`
 
 // AskSystemPrompt frames free-form, multi-turn Q&A about the cluster. Unlike
@@ -41,7 +50,8 @@ const AskSystemPrompt = `You are an Apache Flink SRE assistant embedded in a ter
 You are given an evidence bundle (when a job is in focus) and the conversation so far. Answer the operator's latest question directly and concisely, in plain language — do NOT force a fixed report template.
 You may call the provided read-only tools to fetch anything the evidence does not already contain (list jobs, get a job, checkpoints, exceptions, taskmanagers, more evidence). Prefer a few targeted calls and never repeat an identical call.
 Ground every factual claim in the evidence or a tool result. If the data does not answer the question, say so plainly instead of guessing.
-Tools marked PROPOSAL ONLY queue an action for the human operator — suggest one only when clearly warranted; nothing runs without their confirmation.`
+Tools marked PROPOSAL ONLY do not run on their own: calling one QUEUES the action, which the operator approves with a single keypress and it then executes. So when a fix is warranted you CAN drive it — queue the action and the operator confirms. Do this only when clearly warranted, then state plainly what you queued and that the operator can approve it (e.g. "I've queued a rescale of X to 4 — approve it to apply"). Never tell the operator you are unable to perform an action; you queue it, they confirm.
+Before proposing any state-changing action, check the RECOVERY POINT line in the evidence (is checkpointing on? how recent is the last completed checkpoint?) and state it. If there is no recent completed checkpoint, warn that the change may not be cleanly recoverable — and only then consider proposing a savepoint first, and only for an action that would otherwise discard state (a plain cancel). An in-place rescale already restarts from the latest checkpoint, and savepoint/stop already carry their own, so never stack a redundant savepoint in front of those.`
 
 // StepFn receives live progress lines ("→ get_checkpoints(jid=…)").
 type StepFn func(line string)
@@ -102,7 +112,7 @@ func (tr *toolRunner) run(ctx context.Context, name string, args map[string]stri
 		if tr.onPropose != nil {
 			tr.onPropose(Proposal{Tool: name, Args: args})
 		}
-		return "queued for operator approval — a human must confirm this action. Do NOT call it again or wait; finish your report and mention the proposal."
+		return "QUEUED for the operator, who approves it with one keypress and it then runs — so this action IS available to you via approval. Do NOT call it again or wait; finish your answer and tell the operator what you queued and that they can approve it to apply."
 	}
 	out, err := t.Run(ctx, args)
 	if err != nil {
@@ -142,7 +152,7 @@ func toolSchemas(reg *tools.Registry) []map[string]any {
 	for _, t := range reg.List(true) {
 		desc := t.Description
 		if t.Mutating {
-			desc = "[PROPOSAL ONLY — requires human approval; calling it queues the proposal] " + desc
+			desc = "[PROPOSAL — calling this queues the action for the operator, who approves it with one keypress and it then executes; it is a real, available way to act] " + desc
 		}
 		t.Description = desc
 		props := map[string]any{}
@@ -300,7 +310,7 @@ func (p *anthropicProvider) runToolLoop(ctx context.Context, systemPrompt, seed 
 	var toolParams []anthropic.ToolUnionParam
 	for _, t := range reg.List(true) {
 		if t.Mutating {
-			t.Description = "[PROPOSAL ONLY — requires human approval; calling it queues the proposal] " + t.Description
+			t.Description = "[PROPOSAL — calling this queues the action for the operator, who approves it with one keypress and it then executes; it is a real, available way to act] " + t.Description
 		}
 		props := map[string]any{}
 		var required []string

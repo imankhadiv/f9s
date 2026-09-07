@@ -20,6 +20,41 @@ type ClusterOverview struct {
 	FlinkVersion   string `json:"flink-version"`
 }
 
+// DeploymentMode is how a Flink cluster is deployed. It changes what an
+// action means: cancelling a job on an application cluster tears the cluster
+// down; on a session cluster the cluster survives and other jobs are untouched.
+type DeploymentMode int
+
+const (
+	ModeUnknown DeploymentMode = iota
+	ModeApplication
+	ModeSession
+	ModeStandalone
+)
+
+func (m DeploymentMode) String() string {
+	switch m {
+	case ModeApplication:
+		return "application"
+	case ModeSession:
+		return "session"
+	case ModeStandalone:
+		return "standalone"
+	default:
+		return "unknown"
+	}
+}
+
+// ModeInfo is the detected deployment mode plus how sure we are. Safety copy
+// only relaxes when Confident — asserting "the cluster survives" when we can't
+// prove it is dangerous, so an unproven mode keeps the conservative warning.
+type ModeInfo struct {
+	Mode      DeploymentMode
+	Source    string // "flink-config" | "heuristic"
+	ClusterID string // kubernetes.cluster-id when present
+	Confident bool
+}
+
 // TaskCounts appears on jobs and vertices.
 type TaskCounts struct {
 	Total   int `json:"total"`

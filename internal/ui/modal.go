@@ -2,12 +2,15 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
 	"github.com/imankhadiv/f9s/internal/views"
 )
@@ -22,12 +25,59 @@ type modal struct {
 	needsInput bool
 	rescale    *views.RescaleMsg  // non-nil for the rescale dialog
 	proposal   *views.ProposalMsg // non-nil for an agent proposal
+	mode       model.ModeInfo
 }
 
-// newProposalModal builds the confirm dialog for an agent-proposed action,
-// showing the exact tool call.
-func newProposalModal(msg views.ProposalMsg) *modal {
-	return &modal{jid: fmt.Sprint(msg.Args), name: msg.Job, proposal: &msg}
+// clusterFate is the mode-aware line appended to a job-ending action's
+// consequence: on a session cluster the cluster survives; on an application
+// cluster ending the job tears it down. It speaks ONLY when detection is
+// Confident — a heuristic guess must never unlock a reassuring "cluster
+// survives", so an unproven mode keeps the conservative base copy.
+func (m *modal) clusterFate() string {
+	if !m.mode.Confident {
+		return ""
+	}
+	switch m.mode.Mode {
+	case model.ModeSession, model.ModeStandalone:
+		return "\n\nThe session cluster keeps running — other jobs are unaffected."
+	case model.ModeApplication:
+		return "\n\n⚠ APPLICATION cluster — ending this job tears the cluster down."
+	default:
+		return ""
+	}
+}
+
+// newProposalModal builds the confirm dialog for an agent-proposed action.
+// The real target is the jid in the tool args, not the on-screen page label —
+// an injected call can aim at a different job, so we surface the args' jid as
+// the subtitle and flag it when it disagrees with the focused page.
+func newProposalModal(msg views.ProposalMsg, mi model.ModeInfo) *modal {
+	sub := renderArgs(msg.Args)
+	if jid := msg.Args["jid"]; jid != "" && msg.Job != "" && jid != msg.Job {
+		sub = "⚠ targets " + jid + " (not the focused " + msg.Job + ")\n" + sub
+	}
+	return &modal{jid: sub, name: msg.Job, proposal: &msg, mode: mi}
+}
+
+// renderArgs formats tool args deterministically (jid first, then sorted) so
+// the operator always sees the exact, fully-resolved call — the prose is the
+// attack surface; these concrete args are ground truth.
+func renderArgs(args map[string]string) string {
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		if k != "jid" && args[k] != "" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(args))
+	if jid := args["jid"]; jid != "" {
+		parts = append(parts, "jid="+jid)
+	}
+	for _, k := range keys {
+		parts = append(parts, k+"="+args[k])
+	}
+	return strings.Join(parts, "  ")
 }
 
 // newRescaleModal builds the FLIP-291 rescale dialog, prefilled with the
@@ -42,8 +92,8 @@ func newRescaleModal(msg views.RescaleMsg) *modal {
 	return m
 }
 
-func newModal(kind views.ActionKind, jid, name, defaultDir string) *modal {
-	m := &modal{kind: kind, jid: jid, name: name}
+func newModal(kind views.ActionKind, jid, name, defaultDir string, mi model.ModeInfo) *modal {
+	m := &modal{kind: kind, jid: jid, name: name, mode: mi}
 	if kind == views.ActionSavepoint || kind == views.ActionStop {
 		m.needsInput = true
 		m.input = textinput.New()
@@ -74,7 +124,23 @@ func (m *modal) verb() string {
 
 func (m *modal) consequence() string {
 	if m.proposal != nil {
-		return fmt.Sprintf("The AI proposed this mutating action. Exact call:\n  %s %v\nIt was NOT executed. Confirm to run it now.", m.proposal.Tool, m.proposal.Args)
+		// The AI proposal gets the SAME per-action danger copy a hand-driven
+		// action shows — the most dangerous action must not get the blandest
+		// warning, since the human's informed tap is the whole defense.
+		var risk string
+		switch m.proposal.Tool {
+		case "cancel_job":
+			risk = "Stops the job WITHOUT a savepoint. State not covered by an\nexternalized checkpoint is LOST. Prefer stop_with_savepoint." + m.clusterFate()
+		case "stop_with_savepoint":
+			risk = "Takes a final savepoint, then STOPS the job." + m.clusterFate()
+		case "trigger_savepoint":
+			risk = "Takes a savepoint; the job keeps running."
+		case "rescale_vertex":
+			risk = "Rescales a vertex via FLIP-291. The job RESTARTS from its latest\ncheckpoint. Requires jobmanager.scheduler: adaptive."
+		default:
+			risk = "Mutating action proposed by the AI."
+		}
+		return "AI-proposed — NOT yet executed.\n\n" + risk + "\n\nConfirm to run it now."
 	}
 	if m.rescale != nil {
 		return fmt.Sprintf("Sets parallelism of %q from %d to the value below via\nFLIP-291 resource requirements. The job RESTARTS from its latest\ncheckpoint. Requires jobmanager.scheduler: adaptive.",
@@ -84,9 +150,9 @@ func (m *modal) consequence() string {
 	case views.ActionSavepoint:
 		return "Takes a savepoint; the job keeps running."
 	case views.ActionStop:
-		return "Takes a savepoint, then stops the job gracefully."
+		return "Takes a savepoint, then stops the job gracefully." + m.clusterFate()
 	default:
-		return "Stops the job WITHOUT taking a savepoint. State not covered\nby an externalized checkpoint is lost."
+		return "Stops the job WITHOUT taking a savepoint. State not covered\nby an externalized checkpoint is lost." + m.clusterFate()
 	}
 }
 

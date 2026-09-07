@@ -60,7 +60,7 @@ func TestToolSchemasFlagMutating(t *testing.T) {
 	var sawProposalGuard bool
 	for _, s := range schemas {
 		fn := s["function"].(map[string]any)
-		if strings.Contains(fn["description"].(string), "PROPOSAL ONLY") {
+		if strings.HasPrefix(fn["description"].(string), "[PROPOSAL") {
 			sawProposalGuard = true
 		}
 		// every schema must carry an object parameter block
@@ -69,6 +69,6 @@ func TestToolSchemasFlagMutating(t *testing.T) {
 		}
 	}
 	if !sawProposalGuard {
-		t.Error("mutating tools must be marked PROPOSAL ONLY in their schema — the human-approval guard is untested")
+		t.Error("mutating tools must be marked [PROPOSAL …] in their schema — the human-approval guard is untested")
 	}
 }

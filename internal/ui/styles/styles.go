@@ -19,14 +19,14 @@ const (
 // The palette is a set of semantic tokens (DESIGN.md #14). Defaults adapt
 // to light/dark terminals; skin.yaml overrides them via LoadSkin.
 var (
-	coral lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#C74B63", Dark: "#E0607A"}
-	dim   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#665E72", Dark: "#8B8497"}
-	green lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#2E8B57", Dark: "#5FBF8B"}
-	amber lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#B07C1F", Dark: "#D4A23F"}
-	red   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#B3372E", Dark: "#E06055"}
-	selFg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#1B1118", Dark: "#F5E1E4"}
-	selBg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#F0D4DA", Dark: "#4A2833"}
-	blue  lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#5B9BF5"}
+	coral lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#D13A57", Dark: "#FF6F87"}
+	dim   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#6B6472", Dark: "#948CA0"}
+	green lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#177A3C", Dark: "#4ADE80"}
+	amber lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#9A6A12", Dark: "#FBBF24"}
+	red   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#CC2E28", Dark: "#FF6B60"}
+	selFg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#1B1118", Dark: "#FFF0F2"}
+	selBg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#F5C9D2", Dark: "#5C2E3C"}
+	blue  lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#63A8FF"}
 )
 
 // Raw palette-color accessors, for callers that need a TerminalColor (e.g. a
@@ -64,14 +64,14 @@ func ViewTitle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(amber).Bold(true)
 }
 
-// ErrText styles error/flash messages.
-func ErrText() lipgloss.Style { return lipgloss.NewStyle().Foreground(red) }
+// ErrText styles error/flash messages. Bold for k9s-style pop on state words.
+func ErrText() lipgloss.Style { return lipgloss.NewStyle().Foreground(red).Bold(true) }
 
 // WarnText styles degraded-but-not-dead states.
-func WarnText() lipgloss.Style { return lipgloss.NewStyle().Foreground(amber) }
+func WarnText() lipgloss.Style { return lipgloss.NewStyle().Foreground(amber).Bold(true) }
 
 // OKText styles healthy-state text.
-func OKText() lipgloss.Style { return lipgloss.NewStyle().Foreground(green) }
+func OKText() lipgloss.Style { return lipgloss.NewStyle().Foreground(green).Bold(true) }
 
 // Footer styles the keybinding hint bar.
 func Footer() lipgloss.Style { return lipgloss.NewStyle().Foreground(dim) }

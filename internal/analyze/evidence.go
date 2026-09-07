@@ -2,6 +2,7 @@ package analyze
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -53,6 +54,38 @@ func BuildEvidence(cl *client.Client, jid string) (string, error) {
 				fmt.Fprintf(&b, " failure=%q", h.FailureMessage)
 			}
 			b.WriteString("\n")
+		}
+
+		// RECOVERY POINT: the rollback net any mutation leans on. State it
+		// explicitly so a proposal can reason about it rather than blindly
+		// assuming the job is recoverable. "completed=0" alone is ambiguous
+		// (checkpointing off vs a brand-new job) — CheckpointConfig disambiguates.
+		recovery := "NONE — no completed checkpoint; a restart would lose in-flight state"
+		for _, h := range cp.History {
+			if h.Status == "COMPLETED" {
+				kind := "checkpoint"
+				if h.IsSavepoint {
+					kind = "savepoint"
+				}
+				recovery = fmt.Sprintf("latest %s age=%s (id=%d)", kind, model.FmtAge(h.TriggerTimestamp), h.ID)
+				break
+			}
+		}
+		// Flink reports interval = math.MaxInt64 as its sentinel for "periodic
+		// checkpointing disabled" (checkpoints only on manual/savepoint trigger).
+		// A brand-new job that simply hasn't fetched config yet stays "unknown".
+		enabled, interval, known := false, int64(0), false
+		if cfg, err := cl.CheckpointConfig(jid); err == nil {
+			interval, known = cfg.Interval, true
+			enabled = cfg.Interval > 0 && cfg.Interval < math.MaxInt64
+		}
+		switch {
+		case known && !enabled:
+			fmt.Fprintf(&b, "RECOVERY POINT: periodic checkpointing DISABLED — no automatic rollback; recovery=%s\n", recovery)
+		case known:
+			fmt.Fprintf(&b, "RECOVERY POINT: checkpointing on (interval=%s) — recovery=%s\n", model.FmtDuration(interval), recovery)
+		default:
+			fmt.Fprintf(&b, "RECOVERY POINT: recovery=%s\n", recovery)
 		}
 	}
 

@@ -81,6 +81,7 @@ type pluginDoneMsg struct {
 
 type proposalDoneMsg struct {
 	tool   string
+	args   map[string]string
 	output string
 	err    error
 }
@@ -110,6 +111,7 @@ type App struct {
 	width        int
 	height       int
 	ov           model.ClusterOverview
+	modeInfo     model.ModeInfo // detected deployment mode (application/session/…)
 	connected    bool
 	everSeen     bool
 	lastOK       time.Time
@@ -589,6 +591,15 @@ func (a *App) fetchOverview() tea.Cmd {
 	}
 }
 
+type modeMsg struct{ info model.ModeInfo }
+
+// detectMode reads the cluster's deployment mode off the JobManager config in
+// a goroutine (cached in the client after the first success).
+func (a *App) detectMode() tea.Cmd {
+	cl := a.cl
+	return func() tea.Msg { return modeMsg{info: cl.DeploymentMode()} }
+}
+
 type clearFlashMsg struct{ seq int }
 
 // setFlash shows a transient status line and returns the cmd that clears it.
@@ -627,13 +638,13 @@ func (a *App) startProposal(msg views.ProposalMsg) tea.Cmd {
 	return func() tea.Msg {
 		t, ok := reg.Get(msg.Tool)
 		if !ok {
-			return proposalDoneMsg{tool: msg.Tool, err: fmt.Errorf("unknown tool")}
+			return proposalDoneMsg{tool: msg.Tool, args: msg.Args, err: fmt.Errorf("unknown tool")}
 		}
 		out, err := t.Run(context.Background(), msg.Args)
 		if len(out) > 120 {
 			out = out[:120] + "…"
 		}
-		return proposalDoneMsg{tool: msg.Tool, output: out, err: err}
+		return proposalDoneMsg{tool: msg.Tool, args: msg.Args, output: out, err: err}
 	}
 }
 
@@ -852,7 +863,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.lastOK = time.Now()
 			a.ov = msg.ov
 			a.failStreak = 0
+			if a.modeInfo.Mode == model.ModeUnknown {
+				return a, a.detectMode() // one cheap config read, then cached
+			}
 		}
+		return a, nil
+
+	case modeMsg:
+		a.modeInfo = msg.info
 		return a, nil
 
 	case views.PushMsg:
@@ -869,7 +887,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.op != nil {
 			return a, a.setFlash(fmt.Sprintf("%s on %s still in progress — one operation at a time", verbOf(a.op.kind), a.op.name), true)
 		}
-		a.modal = newModal(msg.Kind, msg.JID, msg.Name, a.savepointDir)
+		a.modal = newModal(msg.Kind, msg.JID, msg.Name, a.savepointDir, a.mode())
 		return a, nil
 
 	case invDoneMsg:
@@ -889,7 +907,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.cfg.Contexts[a.contextName].ReadOnly {
 			return a, a.setFlash("[RO] context is read-only — AI proposals cannot be executed", true)
 		}
-		a.modal = newProposalModal(msg)
+		// Record the AI-surfaced call with its REAL target and params before the
+		// human decides — so the forensic trail shows what was proposed even if
+		// it is declined (a "proposed" line with no matching execute = declined).
+		audit.Append(audit.Record{Context: a.contextName, Action: msg.Tool, Target: msg.Args["jid"], Params: msg.Args, Result: "proposed", Source: "ai-proposal"})
+		a.modal = newProposalModal(msg, a.mode())
 		return a, nil
 
 	case proposalDoneMsg:
@@ -897,7 +919,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			res = msg.err.Error()
 		}
-		audit.Append(audit.Record{Context: a.contextName, Action: msg.tool, Target: "ai-proposal", Result: res, Source: "ai-proposal"})
+		audit.Append(audit.Record{Context: a.contextName, Action: msg.tool, Target: msg.args["jid"], Params: msg.args, Result: res, Source: "ai-proposal"})
 		if msg.err != nil {
 			return a, a.setFlash("proposal "+msg.tool+": "+msg.err.Error(), true)
 		}
@@ -943,6 +965,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.savepointDir = cctx.SavepointDir
 		a.cl = client.New(cctx)
 		a.ov = model.ClusterOverview{}
+		a.modeInfo = model.ModeInfo{} // re-detect for the new cluster
 		a.connected, a.everSeen = false, false
 		a.sent = sentinel.NewPersistent(msg.Name) // fresh watchdog for the new cluster
 		a.watchStore = watch.NewStore()
@@ -1182,44 +1205,6 @@ func verbOf(kind views.ActionKind) string {
 	}
 }
 
-func (a *App) header() string {
-	// Connection state lives in a stable right-aligned slot; severity is
-	// graded: amber for a lapsed connection, red only for never-connected.
-	conn := styles.OKText().Render("CONNECTED") + styles.Dim().Render(fmt.Sprintf(" ⟳%ds", int(time.Since(a.lastOK).Seconds())))
-	if !a.connected {
-		conn = styles.ErrText().Render("DOWN")
-		if a.everSeen {
-			conn = styles.WarnText().Render(fmt.Sprintf("DEGRADED %ds", int(time.Since(a.lastOK).Seconds())))
-		}
-	}
-	badge := ""
-	if n := len(a.sent.OpenAlerts()); n > 0 {
-		badge = styles.ErrText().Render(fmt.Sprintf(" ⚠%d ", n))
-	}
-	ro := ""
-	if a.cfg.Contexts[a.contextName].ReadOnly {
-		ro = styles.WarnText().Render("[RO] ")
-	}
-	left := styles.Header().Render("f9s") + "  " + ro + badge + styles.Dim().Render(fmt.Sprintf(
-		"%s · flink %s · slots %d/%d · tms %d · jobs %d",
-		a.contextName, orDash(a.ov.FlinkVersion), a.ov.SlotsAvailable, a.ov.SlotsTotal,
-		a.ov.TaskManagers, a.ov.JobsRunning))
-	right := conn
-	if a.fetching {
-		right = conn + " " + styles.Dim().Render(a.spin.View())
-	}
-	inner := a.width - 4 // border (2) + padding (2)
-	if inner < 1 {
-		inner = 1
-	}
-	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
-	line := lipgloss.NewStyle().MaxWidth(inner).Render(left + strings.Repeat(" ", gap) + right)
-	return styles.PanelBox().Width(a.width - 2).Render(line)
-}
-
 // crumbs renders the drill-down trail once the user has drilled in; at the
 // root it returns "" because the view's own title bar already names the
 // screen (no point showing "jobs" above "JOBS").
@@ -1294,7 +1279,18 @@ func (a *App) View() string {
 	}
 	flash := a.flashLine()
 	crumb := a.crumbs()
-	chrome := 4 // header box (3) + footer (1)
+	// The tall k9s header carries the hotkeys itself, so the footer legend is
+	// dropped in full mode; a command prompt still claims a bottom row.
+	full := a.headerFull()
+	headerH := 3
+	if full {
+		headerH = 3 + logoRows - 1 // rounded box (2) + 6 content rows
+	}
+	bottomBar := a.cmdMode || !full
+	chrome := headerH
+	if bottomBar {
+		chrome++
+	}
 	if crumb != "" {
 		chrome++ // breadcrumb trail (only when drilled in)
 	}
@@ -1319,23 +1315,28 @@ func (a *App) View() string {
 	default:
 		body = a.top().View(a.width, bodyH)
 	}
-	out := a.header() + "\n"
+	// Assemble top-to-bottom with no trailing newline, so the rendered height
+	// matches the chrome budget exactly.
+	out := a.header()
 	if crumb != "" {
-		out += crumb + "\n"
+		out += "\n" + crumb
 	}
-	out += body + "\n"
+	out += "\n" + body
 	if flash != "" {
-		out += flash + "\n"
+		out += "\n" + flash
 	}
 	if a.cmdMode {
 		hint := ""
 		if r := resolveCommand(strings.TrimSpace(a.cmdInput.Value())); r != "" {
 			hint = styles.OKText().Render("  → " + r)
 		}
-		return out + " " + a.cmdInput.View() + hint +
+		return out + "\n " + a.cmdInput.View() + hint +
 			styles.Dim().Render("   jobs · tms · savepoints · contexts · k8s · sql · log · inv · config · history · quit")
 	}
-	return out + a.keyLegend(a.top().Bindings(), globalBindings())
+	if !full {
+		out += "\n" + a.keyLegend(a.top().Bindings(), globalBindings())
+	}
+	return out
 }
 
 // maxFooterKeys caps how many of a view's own hotkeys the footer advertises,

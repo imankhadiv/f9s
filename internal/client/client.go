@@ -68,6 +68,8 @@ func RecentCalls() []CallRecord {
 type Client struct {
 	versionMu sync.Mutex
 	version   string // flink-version cached from the last Overview
+	modeMu    sync.Mutex
+	mode      *model.ModeInfo // deployment mode, cached (config is near-static)
 	base      string
 	hc        *http.Client
 	header    http.Header
@@ -961,6 +963,50 @@ func (c *Client) AdaptiveScheduler() (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// DeploymentMode detects how the cluster is deployed from its JobManager
+// config (execution.target). The config is near-static, so a successful
+// detection is cached for the client's life; a failed read is not cached, so
+// it retries. An absent execution.target yields ModeUnknown (not Confident),
+// which keeps the conservative safety copy — we never assert a mode we can't
+// prove.
+func (c *Client) DeploymentMode() model.ModeInfo {
+	c.modeMu.Lock()
+	if c.mode != nil {
+		mi := *c.mode
+		c.modeMu.Unlock()
+		return mi
+	}
+	c.modeMu.Unlock()
+
+	cfg, err := c.JobManagerConfig()
+	if err != nil {
+		return model.ModeInfo{Mode: model.ModeUnknown} // uncached — retry next time
+	}
+	get := func(k string) string {
+		for _, e := range cfg {
+			if e.Key == k {
+				return e.Value
+			}
+		}
+		return ""
+	}
+	mi := model.ModeInfo{Mode: model.ModeUnknown, ClusterID: get("kubernetes.cluster-id")}
+	switch target := strings.ToLower(get("execution.target")); {
+	case target == "":
+		// config didn't expose it — stay unknown/unconfident, fall to heuristics later
+	case strings.HasSuffix(target, "application"), target == "embedded":
+		mi.Mode, mi.Source, mi.Confident = model.ModeApplication, "flink-config", true
+	case strings.HasSuffix(target, "session"), target == "remote":
+		mi.Mode, mi.Source, mi.Confident = model.ModeSession, "flink-config", true
+	case target == "local":
+		mi.Mode, mi.Source, mi.Confident = model.ModeStandalone, "flink-config", true
+	}
+	c.modeMu.Lock()
+	c.mode = &mi
+	c.modeMu.Unlock()
+	return mi
 }
 
 // SetVertexParallelism is PUT /jobs/:jid/resource-requirements (FLIP-291):
