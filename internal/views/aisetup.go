@@ -84,14 +84,13 @@ func (a *AISetup) save() (Model, tea.Cmd) {
 		a.err = "save: " + err.Error()
 		return a, nil
 	}
-	cmds := []tea.Cmd{
-		func() tea.Msg { return PopMsg{} },
-		flash("AI configured (" + cctx.AI.Provider + ") → " + cfg.Path),
-	}
+	// Pop this form FIRST, then flash + retry the pending action. Sequence
+	// (not Batch) so the retry's push isn't clobbered by the pop.
+	after := []tea.Cmd{flash("AI configured (" + cctx.AI.Provider + ") → " + cfg.Path)}
 	if a.retry != nil {
-		cmds = append(cmds, a.retry)
+		after = append(after, a.retry)
 	}
-	return a, tea.Batch(cmds...)
+	return a, tea.Sequence(func() tea.Msg { return PopMsg{} }, tea.Batch(after...))
 }
 
 func (a *AISetup) Update(msg tea.Msg) (Model, tea.Cmd) {

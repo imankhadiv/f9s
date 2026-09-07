@@ -51,13 +51,16 @@ func (m *AIMenu) Bindings() []key.Binding {
 	}
 }
 
-// choose replaces the menu with the selected AI view (pop self, then push).
+// choose replaces the menu with the selected AI view: pop self, THEN push the
+// chosen view. Order matters — tea.Sequence guarantees the pop runs first, so
+// the push doesn't get clobbered (tea.Batch left the two racing, which popped
+// the freshly-pushed view and stranded the user on the menu).
 func (m *AIMenu) choose(i int) tea.Cmd {
 	if i < 0 || i >= len(aiOptions) {
 		return nil
 	}
 	act := aiOptions[i].run(m.deps, m.jid, m.name)
-	return tea.Batch(func() tea.Msg { return PopMsg{} }, act)
+	return tea.Sequence(func() tea.Msg { return PopMsg{} }, act)
 }
 
 func (m *AIMenu) Update(msg tea.Msg) (Model, tea.Cmd) {
