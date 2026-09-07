@@ -108,6 +108,7 @@ func (d *JobDetail) Bindings() []key.Binding {
 		binding("t", "t", "subtasks"),
 		binding("R", "R", "rescale vertex"),
 		binding("d", "d", "skew distribution"),
+		binding("e", "e", "bp edge"),
 		binding("y", "y", "describe"),
 		binding("esc", "esc", "back"),
 	}
@@ -301,6 +302,12 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 			v := d.job.Vertices[d.tbl.Cursor()]
 			isSource := strings.HasPrefix(v.Name, "Source")
 			return d, push(NewSkewDetail(d.deps, d.jid, v.ID, v.Name, v.Parallelism, isSource))
+		case "e":
+			if len(d.job.Vertices) == 0 {
+				return d, nil
+			}
+			v := d.job.Vertices[d.tbl.Cursor()]
+			return d, push(NewBufferCompare(d.deps, d.jid, v.ID, v.Name, v.Parallelism))
 		case "R":
 			if g := readOnlyGuard(d.deps); g != nil {
 				return d, g
