@@ -37,6 +37,7 @@ The dashboard is fine at watching one job. Operating is a different sport:
 | Kubernetes operator awareness | ✗ | ✓ `K` FlinkDeployments |
 | AI diagnosis & chat | ✗ | ✓ explain `a`, investigate `A`, ask `@` — local-first, anonymized |
 | AI-suggested actions | ✗ | ✓ proposed, never auto-run — you confirm inline |
+| Page-aware AI panel | ✗ | ✓ `A` — a side panel that always knows the page you're on |
 | Agent access | ✗ | ✓ `f9s mcp` |
 | Extensible | rebuild the Angular app | ✓ `plugins.yaml` |
 
@@ -145,6 +146,12 @@ before anything happens:
 
 ![AI proposes an action](vhs/ai-propose.png)
 ![Human-in-the-loop confirmation](vhs/ai-propose-confirm.png)
+
+**A page-aware AI side panel** — press `A` on any page for a chat that already
+knows what you're looking at (`AI · knows: job / checkpoints / cluster …`),
+grounded in the on-screen evidence:
+
+![Page-aware AI panel](vhs/ai-panel.png)
 
 Every action taken this way lands in the audit log (`~/.local/share/f9s/audit/`),
 and a `readOnly` context refuses AI proposals outright.
