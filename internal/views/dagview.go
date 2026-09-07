@@ -45,17 +45,19 @@ type dagStatMsg struct {
 // busy/backpressure state on every node — topology the Web UI shows only
 // as an SVG you can't grep.
 type DagView struct {
-	deps  Deps
-	jid   string
-	name  string
-	plan  model.Plan
-	job   model.Job
-	rates map[string]edgeRate
-	stats map[string]dagStat
-	xOff  int // horizontal scroll offset for the boxed layout
-	vp    viewport.Model
-	ready bool
-	err   string
+	deps   Deps
+	jid    string
+	name   string
+	plan   model.Plan
+	job    model.Job
+	rates  map[string]edgeRate
+	stats  map[string]dagStat
+	xOff   int      // horizontal scroll offset for the boxed layout
+	selVID string   // selected vertex id (by id, so refreshes don't move it)
+	order  []string // box layout order (column-major), for ←→ selection
+	vp     viewport.Model
+	ready  bool
+	err    string
 }
 
 // NewDagView builds the DAG view for one job.
@@ -67,8 +69,10 @@ func (d *DagView) Title() string   { return "dag(" + d.name + ")" }
 func (d *DagView) Filtering() bool { return false }
 func (d *DagView) Bindings() []key.Binding {
 	return []key.Binding{
+		binding("left", "←→", "select box"),
+		binding("R", "R", "rescale"),
 		binding("up", "↑↓", "scroll"),
-		binding("left", "←→", "pan graph"),
+		binding("shift+left", "shift+←→", "pan"),
 		binding("esc", "esc", "back"),
 	}
 }
@@ -146,6 +150,9 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		d.plan = msg.plan
 		d.job = msg.job
 		d.rates = msg.rates
+		if _, ok := d.nodeByID(d.selVID); !ok && len(d.plan.Nodes) > 0 {
+			d.selVID = topoOrder(d.plan.Nodes)[0].ID // default/repair selection
+		}
 		if d.ready {
 			d.vp.SetContent(d.render(d.vp.Width))
 		}
@@ -158,23 +165,43 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return d, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "left":
-			if d.xOff > 0 {
+		case "left", "right", "tab", "shift+tab":
+			delta := 1
+			if msg.String() == "left" || msg.String() == "shift+tab" {
+				delta = -1
+			}
+			d.moveSel(delta)
+			d.autoPan()
+			if d.ready {
+				d.vp.SetContent(d.render(d.vp.Width))
+			}
+			return d, nil
+		case "shift+left", "shift+right":
+			if msg.String() == "shift+left" {
 				d.xOff -= 8
-				if d.xOff < 0 {
-					d.xOff = 0
-				}
+			} else {
+				d.xOff += 8
+			}
+			if d.xOff < 0 {
+				d.xOff = 0
 			}
 			if d.ready {
 				d.vp.SetContent(d.render(d.vp.Width))
 			}
 			return d, nil
-		case "right":
-			d.xOff += 8
-			if d.ready {
-				d.vp.SetContent(d.render(d.vp.Width))
+		case "R":
+			if g := readOnlyGuard(d.deps); g != nil {
+				return d, g
 			}
-			return d, nil
+			n, ok := d.nodeByID(d.selVID)
+			if !ok {
+				return d, nil
+			}
+			label, par := d.nodeLabel(n)
+			jid, jobName, vid := d.jid, d.name, n.ID
+			return d, func() tea.Msg {
+				return RescaleMsg{JID: jid, Job: jobName, VID: vid, Vertex: label, Current: par}
+			}
 		}
 		if d.ready {
 			var cmd tea.Cmd
@@ -183,6 +210,54 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	}
 	return d, nil
+}
+
+// moveSel shifts the selection along the column-major box order.
+func (d *DagView) moveSel(delta int) {
+	if len(d.order) == 0 {
+		return
+	}
+	i := 0
+	for k, id := range d.order {
+		if id == d.selVID {
+			i = k
+			break
+		}
+	}
+	i += delta
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(d.order) {
+		i = len(d.order) - 1
+	}
+	d.selVID = d.order[i]
+}
+
+// autoPan scrolls horizontally so the selected box stays on screen.
+func (d *DagView) autoPan() {
+	const pitch, boxW = boxInner + 2 + 5, boxInner + 2 // column pitch, box width
+	col := rank(d.plan.Nodes)[d.selVID]
+	left, right := col*pitch, col*pitch+boxW
+	iw := d.vp.Width
+	if left < d.xOff {
+		d.xOff = left
+	} else if iw > 0 && right > d.xOff+iw {
+		d.xOff = right - iw
+	}
+	if d.xOff < 0 {
+		d.xOff = 0
+	}
+}
+
+// nodeByID finds a plan node by vertex id.
+func (d *DagView) nodeByID(id string) (model.PlanNode, bool) {
+	for _, n := range d.plan.Nodes {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return model.PlanNode{}, false
 }
 
 // topoOrder returns plan nodes in topological order (sources first), with a
@@ -385,36 +460,52 @@ func boxColor(h boxHealth) lipgloss.TerminalColor {
 	}
 }
 
-// box renders one operator as a color-bordered tile with its live metrics.
-func (d *DagView) box(n model.PlanNode, bw int) string {
+// gaugeLine renders "LABL ███░░ NN%" width-exact inside a box (gw+10 cells):
+// label(4)+space + gw bar + space + "NNN%"(4). A negative pct is unsampled.
+func gaugeLine(label string, pct, gw int, warnAt, critAt float64) string {
+	lab := styles.Dim().Render(fmt.Sprintf("%-4s ", label))
+	if pct < 0 {
+		return lab + styles.Dim().Render(strings.Repeat("·", gw)+"   —")
+	}
+	bar := styles.Gauge(float64(pct)/100, gw, warnAt, critAt)
+	return lab + bar + styles.Dim().Render(fmt.Sprintf(" %3d%%", pct))
+}
+
+// box renders one operator as a modern tile: a filled health-colored title
+// bar, the parallelism, and three severity gauge bars (backpressure/busy/skew).
+// A selected box gets a thick border, a ▸ marker, and a reversed title bar.
+func (d *DagView) box(n model.PlanNode, bw int, selected bool) string {
 	label, par := d.nodeLabel(n)
 	st := d.stats[n.ID]
 	col := boxColor(d.classify(n, st))
 	tw := bw - 2 // text area inside the padding
 
+	// title: bold health-colored text; the selected box gets a reverse-video
+	// full-width header bar + ▸ marker (readable on any theme, unlike a dim
+	// background fill).
+	marker := ""
 	titleStyle := lipgloss.NewStyle().Foreground(col).Bold(true)
-	bp := "Backpressured (max): —"
-	if st.bpMax >= 0 {
-		bp = fmt.Sprintf("Backpressured (max): %d%%", st.bpMax)
-	} else if st.level != "" {
-		bp = "Backpressured: " + strings.ToUpper(st.level)
+	if selected {
+		marker = "▸ "
+		titleStyle = titleStyle.Reverse(true).Width(tw)
 	}
-	bz := "Busy (max): —"
-	if st.busyMax >= 0 {
-		bz = fmt.Sprintf("Busy (max): %d%%", st.busyMax)
+	title := titleStyle.Render(truncate(marker+label, tw))
+	parLine := lipgloss.NewStyle().Foreground(col).Bold(true).Render(fmt.Sprintf("parallelism  %d", par))
+
+	body := title + "\n" +
+		parLine + "\n" +
+		gaugeLine("bp", st.bpMax, 14, 0.5, 0.8) + "\n" +
+		gaugeLine("busy", st.busyMax, 14, 0.5, 0.8) + "\n" +
+		gaugeLine("skew", st.skew, 14, 0.3, 0.6)
+
+	border := lipgloss.RoundedBorder()
+	bc := col
+	if selected {
+		border = lipgloss.ThickBorder() // ┏━┓ — obvious even without color
 	}
-	sk := "Data Skew: —"
-	if st.skew >= 0 {
-		sk = fmt.Sprintf("Data Skew: %d%%", st.skew)
-	}
-	body := titleStyle.Render(truncate(label, tw)) + "\n" +
-		titleStyle.Render(truncate(fmt.Sprintf("Parallelism: %d", par), tw)) + "\n" +
-		styles.Dim().Render(truncate(bp, tw)) + "\n" +
-		styles.Dim().Render(truncate(bz, tw)) + "\n" +
-		styles.Dim().Render(truncate(sk, tw))
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(col).
+		Border(border).
+		BorderForeground(bc).
 		Padding(0, 1).
 		Width(bw).
 		Render(body)
@@ -477,11 +568,13 @@ func (d *DagView) renderBoxes(iw int) string {
 		cols[r[n.ID]] = append(cols[r[n.ID]], n)
 	}
 
+	d.order = d.order[:0]
 	var seg []string
 	for ci, colNodes := range cols {
 		var boxes []string
 		for _, n := range colNodes {
-			boxes = append(boxes, d.box(n, boxInner))
+			d.order = append(d.order, n.ID)
+			boxes = append(boxes, d.box(n, boxInner, n.ID == d.selVID))
 		}
 		seg = append(seg, lipgloss.JoinVertical(lipgloss.Left, interleaveBlank(boxes)...))
 		if ci < len(cols)-1 {
@@ -509,13 +602,14 @@ func (d *DagView) renderBoxes(iw int) string {
 			lines[i] = ansi.Cut(ln, d.xOff, d.xOff+iw)
 		}
 		row = strings.Join(lines, "\n")
-		hint = "\n" + styles.Dim().Render(fmt.Sprintf(" ← → pan · showing cols %d–%d of %d", d.xOff, min(d.xOff+iw, full), full))
+		hint = "\n" + styles.Dim().Render(fmt.Sprintf(" showing cols %d–%d of %d", d.xOff, min(d.xOff+iw, full), full))
 	} else {
 		d.xOff = 0
 	}
-	legend := "\n" + styles.Dim().Render(" ") +
+	legend := "\n " +
 		styles.Dim().Render("source") + " · " + styles.BlueText().Render("healthy") + " · " +
-		styles.WarnText().Render("busy") + " · " + styles.ErrText().Render("bottleneck")
+		styles.WarnText().Render("busy") + " · " + styles.ErrText().Render("bottleneck") +
+		styles.Dim().Render("   —   ←→ select · R rescale · shift+←→ pan")
 	return row + hint + "\n" + legend
 }
 

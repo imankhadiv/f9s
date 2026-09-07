@@ -95,7 +95,7 @@ retrying with backoff until the cluster answers.
 | `A` | agentic investigate: the model drills deeper with read-only tools, every call shown |
 | `@` | ask AI: free-form chat about the job (or `:ask` cluster-wide) — starter questions, and it can propose actions you approve inline |
 | `b` | backpressure history sparklines (in job detail) |
-| `g` | execution graph as Flink-UI-style boxes — per-operator parallelism, backpressure/busy/skew, health-colored, `←→` to pan (in job detail) |
+| `g` | execution graph as Flink-UI-style boxes — per-operator parallelism, backpressure/busy/skew gauges, health-colored; `←→` selects a box, `R` rescales it (FLIP-291), `shift+←→` pans (in job detail) |
 | `t` | per-vertex subtask table: attempts, TaskManager, lifecycle durations; enter shows retained attempt history (in job detail) |
 | `O` | config resolution: the cluster→job→operator override chain per setting, with the winning layer marked (in job detail) |
 | `w` | watermark propagation debugger: per-vertex event-time lag, the first stalling vertex + why (job detail) |
