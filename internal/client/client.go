@@ -968,6 +968,26 @@ func (c *Client) AdaptiveScheduler() (bool, error) {
 // every vertex's requirements, so this reads the current requirements and
 // modifies only the target. The job restarts from its latest checkpoint;
 // requires the adaptive scheduler.
+// ResourceTargets returns each vertex's target (upper-bound) parallelism from
+// the adaptive scheduler's resource requirements. A rescale is pending wherever
+// this differs from the vertex's currently-running parallelism — the scheduler
+// can take up to ~a minute to apply one, especially a scale-down.
+func (c *Client) ResourceTargets(jid string) (map[string]int, error) {
+	var rr map[string]struct {
+		Parallelism struct {
+			UpperBound int `json:"upperBound"`
+		} `json:"parallelism"`
+	}
+	if err := c.get("/jobs/"+jid+"/resource-requirements", &rr); err != nil {
+		return nil, err
+	}
+	out := make(map[string]int, len(rr))
+	for vid, req := range rr {
+		out[vid] = req.Parallelism.UpperBound
+	}
+	return out, nil
+}
+
 func (c *Client) SetVertexParallelism(jid, vid string, parallelism int) error {
 	var current map[string]struct {
 		Parallelism struct {

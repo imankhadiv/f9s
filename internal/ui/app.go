@@ -909,7 +909,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return a, a.setFlash("rescale "+msg.vertex+": "+msg.err.Error(), true)
 		}
-		return a, tea.Batch(a.setFlash(fmt.Sprintf("rescale %s → %d requested ✓ (job restarts from latest checkpoint)", msg.vertex, msg.p), false), a.top().Refresh())
+		return a, tea.Batch(a.setFlash(fmt.Sprintf("rescale %s → %d requested ✓ — the adaptive scheduler applies it within ~a minute (the graph shows N → %d ⟳ until it does)", msg.vertex, msg.p, msg.p), false), a.top().Refresh())
 
 	case views.PluginMsg:
 		return a, a.runPlugin(msg)

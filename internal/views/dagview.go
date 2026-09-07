@@ -22,10 +22,11 @@ type edgeRate struct {
 }
 
 type dagMsg struct {
-	plan  model.Plan
-	job   model.Job
-	rates map[string]edgeRate // downstream vertex id → inbound shuffle rate
-	err   error
+	plan    model.Plan
+	job     model.Job
+	rates   map[string]edgeRate // downstream vertex id → inbound shuffle rate
+	targets map[string]int      // vertex id → target (upper-bound) parallelism
+	err     error
 }
 
 // dagStat is the per-vertex live snapshot shown inside a box.
@@ -45,19 +46,20 @@ type dagStatMsg struct {
 // busy/backpressure state on every node — topology the Web UI shows only
 // as an SVG you can't grep.
 type DagView struct {
-	deps   Deps
-	jid    string
-	name   string
-	plan   model.Plan
-	job    model.Job
-	rates  map[string]edgeRate
-	stats  map[string]dagStat
-	xOff   int      // horizontal scroll offset for the boxed layout
-	selVID string   // selected vertex id (by id, so refreshes don't move it)
-	order  []string // box layout order (column-major), for ←→ selection
-	vp     viewport.Model
-	ready  bool
-	err    string
+	deps    Deps
+	jid     string
+	name    string
+	plan    model.Plan
+	job     model.Job
+	rates   map[string]edgeRate
+	stats   map[string]dagStat
+	targets map[string]int // vertex id → target parallelism (pending rescale)
+	xOff    int            // horizontal scroll offset for the boxed layout
+	selVID  string         // selected vertex id (by id, so refreshes don't move it)
+	order   []string       // box layout order (column-major), for ←→ selection
+	vp      viewport.Model
+	ready   bool
+	err     string
 }
 
 // NewDagView builds the DAG view for one job.
@@ -100,7 +102,8 @@ func (d *DagView) Refresh() tea.Cmd {
 				rates[n.ID] = edgeRate{recs: r, bytes: by}
 			}
 		}
-		return dagMsg{plan: plan, job: job, rates: rates, err: nil}
+		targets, _ := cl.ResourceTargets(jid) // best-effort; nil when unsupported
+		return dagMsg{plan: plan, job: job, rates: rates, targets: targets, err: nil}
 	}
 }
 
@@ -150,6 +153,7 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		d.plan = msg.plan
 		d.job = msg.job
 		d.rates = msg.rates
+		d.targets = msg.targets
 		if _, ok := d.nodeByID(d.selVID); !ok && len(d.plan.Nodes) > 0 {
 			d.selVID = topoOrder(d.plan.Nodes)[0].ID // default/repair selection
 		}
@@ -490,7 +494,11 @@ func (d *DagView) box(n model.PlanNode, bw int, selected bool) string {
 		titleStyle = titleStyle.Reverse(true).Width(tw)
 	}
 	title := titleStyle.Render(truncate(marker+label, tw))
+	// pending rescale: running parallelism differs from the scheduler target
 	parLine := lipgloss.NewStyle().Foreground(col).Bold(true).Render(fmt.Sprintf("parallelism  %d", par))
+	if t, ok := d.targets[n.ID]; ok && t > 0 && t != par {
+		parLine = styles.WarnText().Bold(true).Render(fmt.Sprintf("parallelism  %d → %d ⟳", par, t))
+	}
 
 	body := title + "\n" +
 		parLine + "\n" +
