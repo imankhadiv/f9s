@@ -66,6 +66,8 @@ type JobDetail struct {
 	applied    int
 	slots      int // free slots at last refresh (-1 unknown)
 	advice     []analyze.Advice
+	graph      *DagView // embedded boxed graph, shown when showGraph (G toggles)
+	showGraph  bool
 	err        string
 }
 
@@ -96,6 +98,7 @@ func (d *JobDetail) Bindings() []key.Binding {
 		binding("ctrl+x", "ctrl-x", "cancel"),
 		binding("a", "a", "AI"),
 		binding("b", "b", "bp history"),
+		binding("G", "G", "graph (toggle)"),
 		binding("g", "g", "DAG"),
 		binding("L", "L", "job logs"),
 		binding("i", "i", "job config"),
@@ -117,7 +120,7 @@ func (d *JobDetail) Refresh() tea.Cmd {
 	jid := d.jid
 	d.gen++
 	gen := d.gen
-	return func() tea.Msg {
+	fetch := func() tea.Msg {
 		job, err := cl.Job(jid)
 		slots := -1
 		if ov, oerr := cl.Overview(); oerr == nil {
@@ -125,6 +128,10 @@ func (d *JobDetail) Refresh() tea.Cmd {
 		}
 		return jobDetailMsg{gen: gen, job: job, slots: slots, err: err}
 	}
+	if d.showGraph && d.graph != nil {
+		return tea.Batch(fetch, d.graph.Refresh())
+	}
+	return fetch
 }
 
 // backpressureCmds samples backpressure for every vertex in parallel.
@@ -191,8 +198,33 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		d.rebuildRows()
 		return d, nil
 
+	case dagMsg, dagStatMsg:
+		if d.graph != nil { // feed the embedded graph its own fetch results
+			m, cmd := d.graph.Update(msg)
+			d.graph = m.(*DagView)
+			return d, cmd
+		}
+		return d, nil
+
 	case tea.KeyMsg:
+		// in graph mode, the box-navigation/rescale keys drive the embedded
+		// DagView; G/g and everything else stay job-detail actions.
+		if d.showGraph && d.graph != nil {
+			switch msg.String() {
+			case "left", "right", "tab", "shift+tab", "R", "shift+left", "shift+right", "up", "down", "pgup", "pgdown", "home", "end":
+				m, cmd := d.graph.Update(msg)
+				d.graph = m.(*DagView)
+				return d, cmd
+			}
+		}
 		switch msg.String() {
+		case "G":
+			d.showGraph = !d.showGraph
+			if d.showGraph && d.graph == nil {
+				d.graph = NewDagView(d.deps, d.jid, d.name)
+				return d, d.graph.Init()
+			}
+			return d, nil
 		case "c":
 			return d, push(NewCheckpoints(d.deps, d.jid, d.name))
 		case "x":
@@ -419,6 +451,9 @@ func (d *JobDetail) rebuildRows() {
 }
 
 func (d *JobDetail) View(width, height int) string {
+	if d.showGraph && d.graph != nil { // G-toggled boxed graph, framed by the graph itself
+		return d.graph.View(width, height)
+	}
 	return framed(width, height, d.name, -1, d.job.State+" · up "+model.FmtDuration(d.job.Duration), d.viewBody)
 }
 
