@@ -125,6 +125,62 @@ func gauge(used, total int, width int) string {
 	return styles.Gauge(float64(used)/float64(total), width, 0.75, 0.90)
 }
 
+// AIContext summarizes the on-screen cluster pulse for the AI panel.
+func (p *Pulse) AIContext() (string, []string) {
+	var b strings.Builder
+	b.WriteString("## On screen: cluster pulse\n")
+	if !p.loaded {
+		b.WriteString("still loading cluster state\n")
+		return b.String(), nil
+	}
+	d := p.d
+	open := 0
+	if p.deps.Sentinel != nil {
+		open = len(p.deps.Sentinel.OpenAlerts())
+	}
+	verdict := "HEALTHY"
+	switch {
+	case open > 0 || d.worstBP == "high" || d.jobStates["FAILED"] > 0 || d.jobStates["RESTARTING"] > 0:
+		verdict = "NEEDS ATTENTION"
+	case d.worstBP == "low" || d.ckptFail > 0:
+		verdict = "WATCH"
+	}
+	fmt.Fprintf(&b, "verdict: %s\n", verdict)
+	usedSlots := d.ov.SlotsTotal - d.ov.SlotsAvailable
+	fmt.Fprintf(&b, "slots: %d/%d used · %d TaskManagers\n", usedSlots, d.ov.SlotsTotal, d.ov.TaskManagers)
+	states := make([]string, 0, len(d.jobStates))
+	for s := range d.jobStates {
+		states = append(states, s)
+	}
+	sort.Strings(states)
+	parts := make([]string, 0, len(states))
+	for _, s := range states {
+		parts = append(parts, fmt.Sprintf("%d %s", d.jobStates[s], s))
+	}
+	if len(parts) > 0 {
+		fmt.Fprintf(&b, "jobs: %s\n", strings.Join(parts, " · "))
+	}
+	bp := d.worstBP
+	if bp == "" {
+		bp = "clear"
+	}
+	if d.worstBPJob != "" {
+		fmt.Fprintf(&b, "worst backpressure: %s (%s)\n", bp, d.worstBPJob)
+	} else {
+		fmt.Fprintf(&b, "worst backpressure: %s\n", bp)
+	}
+	fmt.Fprintf(&b, "checkpoints: %d completed · %d failed\n", d.ckptOK, d.ckptFail)
+	fmt.Fprintf(&b, "throughput: %s rec/s in\n", fmtRate(d.totalIn))
+	if open > 0 {
+		fmt.Fprintf(&b, "alerts: %d firing\n", open)
+	}
+	var names []string
+	if d.worstBPJob != "" {
+		names = []string{d.worstBPJob}
+	}
+	return b.String(), names
+}
+
 func (p *Pulse) View(width, height int) string {
 	head := styles.ViewTitle().Render("Cluster pulse · " + p.deps.Ctx)
 	if !p.loaded {

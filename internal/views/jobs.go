@@ -1,6 +1,7 @@
 package views
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -473,6 +474,41 @@ func statusTasks(t model.TaskCounts) string {
 		s = "!"
 	}
 	return s + strconv.Itoa(t.Running) + "/" + strconv.Itoa(t.Total)
+}
+
+// AIContext summarizes the on-screen, triage-sorted job inventory for the AI panel.
+func (j *Jobs) AIContext() (string, []string) {
+	j.applyFilter()
+	var b strings.Builder
+	fmt.Fprintf(&b, "## On screen: %d jobs (sort: %s)\n", len(j.filtered), sortLabel(j.sortMode))
+	if len(j.filtered) == 0 {
+		b.WriteString("no jobs on this cluster\n")
+		return b.String(), nil
+	}
+	names := make([]string, 0, len(j.filtered))
+	shown := 0
+	for _, job := range j.filtered {
+		names = append(names, job.Name)
+		if shown >= 15 {
+			continue
+		}
+		shown++
+		extra := j.extras[job.JID]
+		restarts := extra.restarts
+		if restarts == "" {
+			restarts = "-"
+		}
+		ckpt := extra.lastCkpt
+		if ckpt == "" {
+			ckpt = "-"
+		}
+		fmt.Fprintf(&b, "  %s · %s · tasks %s · restarts %s · last-ckpt %s\n",
+			job.Name, job.State, statusTasks(job.Tasks), restarts, ckpt)
+	}
+	if shown < len(j.filtered) {
+		fmt.Fprintf(&b, "  … and %d more\n", len(j.filtered)-shown)
+	}
+	return b.String(), names
 }
 
 func (j *Jobs) View(width, height int) string {

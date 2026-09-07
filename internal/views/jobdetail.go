@@ -450,6 +450,36 @@ func (d *JobDetail) rebuildRows() {
 	d.tbl.SetRowsKeyed(rows, keys)
 }
 
+// AIContext gives the AI panel this job's on-screen diagnosis — the computed
+// bottleneck, advisor remedies, and per-vertex backpressure/busy — from state
+// the view already loaded, no extra fetch.
+func (d *JobDetail) AIContext() (string, []string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## On screen: job %q (jid=%s)\nstate: %s · up %s\n",
+		d.name, d.jid, d.job.State, model.FmtDuration(d.job.Duration))
+	if d.bottleneck >= 0 && d.bottleneck < len(d.job.Vertices) {
+		fmt.Fprintf(&b, "computed bottleneck: %s (busy but not backpressured — the slow stage)\n",
+			d.job.Vertices[d.bottleneck].Name)
+	}
+	for _, adv := range d.advice {
+		fmt.Fprintf(&b, "- advice: %s\n", adv.Text)
+	}
+	b.WriteString("vertices (parallelism · backpressure · busy):\n")
+	for _, v := range d.job.Vertices {
+		bp := d.bp[v.ID]
+		busy := "?"
+		if bp.busy >= 0 {
+			busy = fmt.Sprintf("%d%%", int(bp.busy/10))
+		}
+		lvl := bp.level
+		if lvl == "" {
+			lvl = "?"
+		}
+		fmt.Fprintf(&b, "- %s p=%d bp=%s busy=%s\n", v.Name, v.Parallelism, lvl, busy)
+	}
+	return b.String(), []string{d.name}
+}
+
 func (d *JobDetail) View(width, height int) string {
 	if d.showGraph && d.graph != nil { // G-toggled boxed graph, framed by the graph itself
 		return d.graph.View(width, height)

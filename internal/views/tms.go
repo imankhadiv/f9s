@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aymanbagabas/go-osc52/v2"
@@ -246,6 +247,35 @@ func (t *TaskManagersView) rebuild() {
 		}
 		t.tbl.SetRowsKeyed(rows, keys)
 	}
+}
+
+// AIContext summarizes the on-screen TaskManager fleet for the AI panel.
+func (t *TaskManagersView) AIContext() (string, []string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## On screen: %d TaskManagers\n", len(t.tms))
+	if len(t.tms) == 0 {
+		b.WriteString("no TaskManagers registered\n")
+		return b.String(), nil
+	}
+	shown := 0
+	for _, tm := range t.tms {
+		if shown >= 12 {
+			fmt.Fprintf(&b, "  … and %d more\n", len(t.tms)-shown)
+			break
+		}
+		heap := "?"
+		if h, ok := t.heaps[tm.ID]; ok && h.heapPct >= 0 {
+			heap = fmt.Sprintf("%d%%", h.heapPct)
+		}
+		gc := "?"
+		if g, ok := t.gc[tm.ID]; ok && g.rate >= 0 {
+			gc = fmt.Sprintf("%.0fms/s", g.rate)
+		}
+		fmt.Fprintf(&b, "  %s: slots %d/%d free · heap %s · gc %s · heartbeat %s\n",
+			tm.ID, tm.FreeSlots, tm.SlotsNumber, heap, gc, model.FmtAge(tm.TimeSinceLastHeartbeat))
+		shown++
+	}
+	return b.String(), nil
 }
 
 func (t *TaskManagersView) View(width, height int) string {

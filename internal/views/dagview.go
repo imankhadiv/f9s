@@ -254,6 +254,29 @@ func (d *DagView) autoPan() {
 	}
 }
 
+// AIContext gives the AI panel the graph topology with each operator's live
+// health and any pending rescale — the same signals the boxes show.
+func (d *DagView) AIContext() (string, []string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## On screen: execution graph of %s\n", d.name)
+	pct := func(v int) string {
+		if v < 0 {
+			return "?"
+		}
+		return fmt.Sprintf("%d%%", v)
+	}
+	for _, n := range topoOrder(d.plan.Nodes) {
+		label, par := d.nodeLabel(n)
+		st := d.stats[n.ID]
+		fmt.Fprintf(&b, "- %s p=%d bp=%s busy=%s skew=%s", label, par, pct(st.bpMax), pct(st.busyMax), pct(st.skew))
+		if t, ok := d.targets[n.ID]; ok && t > 0 && t != par {
+			fmt.Fprintf(&b, " (rescale pending → %d)", t)
+		}
+		b.WriteString("\n")
+	}
+	return b.String(), []string{d.name}
+}
+
 // nodeByID finds a plan node by vertex id.
 func (d *DagView) nodeByID(id string) (model.PlanNode, bool) {
 	for _, n := range d.plan.Nodes {

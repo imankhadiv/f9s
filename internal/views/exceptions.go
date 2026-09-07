@@ -23,6 +23,7 @@ type ExceptionsView struct {
 	deps  Deps
 	jid   string
 	name  string
+	ex    model.Exceptions // retained for AIContext
 	vp    viewport.Model
 	ready bool
 	err   string
@@ -58,6 +59,7 @@ func (e *ExceptionsView) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return e, nil
 		}
 		e.err = ""
+		e.ex = msg.ex
 		e.vp.SetContent(e.render(msg.ex))
 		return e, nil
 	}
@@ -96,6 +98,36 @@ func fmtTS(ms int64) string {
 		return "-"
 	}
 	return time.UnixMilli(ms).Format("2006-01-02 15:04:05")
+}
+
+// AIContext summarizes the on-screen exceptions for the AI panel.
+func (e *ExceptionsView) AIContext() (string, []string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## On screen: exceptions for %s\n", e.name)
+	if e.ex.RootException == "" && len(e.ex.History.Entries) == 0 {
+		b.WriteString("no exceptions — job is healthy\n")
+		return b.String(), []string{e.name}
+	}
+	if e.ex.RootException != "" {
+		fmt.Fprintf(&b, "root exception (%s):\n", fmtTS(e.ex.Timestamp))
+		for i, ln := range strings.Split(e.ex.RootException, "\n") {
+			if i >= 10 {
+				b.WriteString("  …\n")
+				break
+			}
+			fmt.Fprintf(&b, "  %s\n", ln)
+		}
+	}
+	if len(e.ex.History.Entries) > 0 {
+		b.WriteString("history:\n")
+		for i, en := range e.ex.History.Entries {
+			if i >= 3 {
+				break
+			}
+			fmt.Fprintf(&b, "  #%d %s · %s · task %s\n", i+1, en.ExceptionName, fmtTS(en.Timestamp), en.TaskName)
+		}
+	}
+	return b.String(), []string{e.name}
 }
 
 func (e *ExceptionsView) View(width, height int) string {

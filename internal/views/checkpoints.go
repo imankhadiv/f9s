@@ -129,6 +129,47 @@ func backendBadge(cfg model.CheckpointConfig) string {
 	return out
 }
 
+// AIContext summarizes the on-screen checkpoint state for the AI panel.
+func (c *CheckpointsView) AIContext() (string, []string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## On screen: checkpoints for %s\n", c.name)
+	cn := c.cp.Counts
+	fmt.Fprintf(&b, "counts: %d completed · %d failed · %d in-progress · %d restored\n",
+		cn.Completed, cn.Failed, cn.InProgress, cn.Restored)
+	if c.cfg.Mode != "" {
+		align := "aligned"
+		if c.cfg.UnalignedEnabled {
+			align = "unaligned"
+		}
+		fmt.Fprintf(&b, "config: %s · every %s · timeout %s · %s barriers · backend %s\n",
+			c.cfg.Mode, model.FmtDuration(c.cfg.Interval), model.FmtDuration(c.cfg.Timeout),
+			align, c.cfg.StateBackend)
+	}
+	if len(c.cp.History) > 0 {
+		b.WriteString("recent (newest first):\n")
+		for i, h := range c.cp.History {
+			if i >= 5 {
+				break
+			}
+			sp := ""
+			if h.IsSavepoint {
+				sp = " savepoint"
+			}
+			fmt.Fprintf(&b, "  #%d %s%s · age %s · dur %s · size %s · ack %d/%d",
+				h.ID, h.Status, sp, model.FmtAge(h.TriggerTimestamp),
+				model.FmtDuration(h.EndToEndDuration), model.FmtBytes(h.StateSize),
+				h.NumAcknowledged, h.NumSubtasks)
+			if h.FailureMessage != "" {
+				fmt.Fprintf(&b, " · fail: %s", h.FailureMessage)
+			}
+			b.WriteString("\n")
+		}
+	} else {
+		b.WriteString("no checkpoint history loaded yet\n")
+	}
+	return b.String(), []string{c.name}
+}
+
 func (c *CheckpointsView) View(width, height int) string {
 	counts := c.cp.Counts
 	right := fmt.Sprintf(
