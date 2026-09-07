@@ -189,6 +189,49 @@ func restoreArgs(sc *analyze.Scrubber, args map[string]string) map[string]string
 // provider, and capability exactly like the job-scoped path.
 func AskCluster(deps Deps) tea.Cmd { return askScope(deps, "", "") }
 
+// AIContexter is an OPTIONAL capability: a view that implements it tells the
+// AI panel what it is currently showing, so a question is grounded in the
+// operator's on-screen context. Return plain text (human-readable — the panel
+// seeds it verbatim and the scrubber anonymizes downstream) plus the entity
+// names to anonymize. Views that don't implement it fall back to Title().
+type AIContexter interface {
+	AIContext() (context string, names []string)
+}
+
+// AIContextOf reads the current view's page context for the AI panel: its
+// Title() as the "knows:" label, plus the AIContext() block (or a generic
+// fallback) and the names to scrub.
+func AIContextOf(m Model) (label, context string, names []string) {
+	if c, ok := m.(AIContexter); ok {
+		if ctx, ns := c.AIContext(); ctx != "" {
+			return m.Title(), ctx, ns
+		}
+	}
+	return m.Title(), "The operator is viewing the " + m.Title() + " page.", nil
+}
+
+// resolveAIAgent runs the same gate as askScope and returns a chat agent, or a
+// human-readable reason it can't (for the panel's placeholder). No push side
+// effects — the panel can't push AISetup, so it explains instead.
+func resolveAIAgent(deps Deps) (ai.Agent, string, string) {
+	aiCfg := deps.Cfg.Contexts[deps.Ctx].AI
+	if aiCfg.Policy == "deny" {
+		return nil, "", "AI is disabled by policy on context " + deps.Ctx
+	}
+	if aiCfg.Provider == "" {
+		return nil, "", "AI not configured — press a on a job to set it up, or add an ai: block to this context"
+	}
+	provider, err := ai.New(aiCfg)
+	if err != nil {
+		return nil, "", "AI: " + err.Error()
+	}
+	agent, ok := ai.AsAgent(provider)
+	if !ok {
+		return nil, "", "provider " + provider.Name() + " does not support chat"
+	}
+	return agent, provider.Name(), ""
+}
+
 // askScope gates and opens the free-form Ask chat. Pass jid/name to scope it
 // to one job; pass empty jid for a cluster-wide conversation. With no provider
 // configured it opens the in-TUI AI setup form, which retries after saving.

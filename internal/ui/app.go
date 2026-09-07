@@ -138,8 +138,11 @@ type App struct {
 	paletteInput textinput.Model
 	paletteItems []paletteItem
 	paletteSel   int
-	lastBlast    time.Time // debounce for blast-radius flashes
-	notify       bool      // OSC 9 desktop notifications on alert open
+	lastBlast    time.Time      // debounce for blast-radius flashes
+	notify       bool           // OSC 9 desktop notifications on alert open
+	aiPanel      *views.AIPanel // persistent page-aware AI side panel
+	aiOpen       bool           // panel visible (splits the body)
+	aiFocused    bool           // key input routed to the panel
 }
 
 type invRequest struct {
@@ -273,6 +276,7 @@ func (a *App) runCommand(cmd string) tea.Cmd {
 // globalBindings are the app-level keys appended to every view's own.
 func globalBindings() []key.Binding {
 	return []key.Binding{
+		key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "AI panel")),
 		key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "back/quit")),
 		key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
@@ -286,7 +290,7 @@ func New(cfg *config.Config, contextName string, refreshSeconds int, plugins []p
 	sent := sentinel.NewPersistent(contextName)
 	ws := watch.NewStore()
 	deps := views.Deps{CL: cl, Ctx: contextName, Cfg: cfg, Plugins: plugins, Sentinel: sent, Watch: ws}
-	return &App{
+	a := &App{
 		cfg:          cfg,
 		cl:           cl,
 		contextName:  contextName,
@@ -302,7 +306,14 @@ func New(cfg *config.Config, contextName string, refreshSeconds int, plugins []p
 		alertHook:    alertHook,
 		watchStore:   ws,
 		lastRestarts: map[string]int{},
+		aiPanel:      views.NewAIPanel(deps),
 	}
+	// the panel reads the current view's page context at ask time
+	a.aiPanel.SetProvider(func() views.PageContext {
+		label, ctx, names := views.AIContextOf(a.top())
+		return views.PageContext{Label: label, Context: ctx, Names: names}
+	})
+	return a
 }
 
 // maybeInvestigate queues a watch-mode investigation for an opened alert.
@@ -937,6 +948,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.watchStore = watch.NewStore()
 		deps := views.Deps{CL: a.cl, Ctx: msg.Name, Cfg: a.cfg, Plugins: a.plugins, Sentinel: a.sent, Watch: a.watchStore}
 		a.stack = []views.Model{views.NewJobs(deps)}
+		a.aiPanel.Reset(deps) // fresh cluster → drop the old transcript/scrubber
+		a.aiPanel.SetProvider(func() views.PageContext {
+			label, ctx, names := views.AIContextOf(a.top())
+			return views.PageContext{Label: label, Context: ctx, Names: names}
+		})
+		a.aiOpen, a.aiFocused = false, false
 		return a, tea.Batch(a.top().Init(), a.fetchOverview(), a.setFlash("switched to context "+msg.Name, false))
 
 	case views.FlashMsg:
@@ -1071,10 +1088,42 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, a.startAction(m.kind, m.jid, m.name, dir)
 		}
+		// AI panel focused: it captures all typing (enter=send, digits=pick a
+		// proposal, pgup/pgdn=scroll). Esc yields focus back to the main view.
+		if a.aiOpen && a.aiFocused {
+			if msg.String() == "esc" {
+				a.aiFocused = false
+				a.aiPanel.Blur()
+				return a, nil
+			}
+			var cmd tea.Cmd
+			a.aiPanel, cmd = a.aiPanel.Update(msg)
+			return a, cmd
+		}
 		if !a.top().Filtering() {
 			switch msg.String() {
 			case "ctrl+c":
 				return a, tea.Quit
+			case "A":
+				if !a.aiOpen {
+					if a.width < aiMinTotal {
+						return a, a.setFlash("terminal too narrow for the AI panel — widen to ~80 cols", true)
+					}
+					a.aiOpen, a.aiFocused = true, true
+					return a, a.aiPanel.Focus()
+				}
+				a.aiOpen, a.aiFocused = false, false
+				a.aiPanel.Blur()
+				return a, nil
+			case "tab":
+				if a.aiOpen {
+					a.aiFocused = !a.aiFocused
+					if a.aiFocused {
+						return a, a.aiPanel.Focus()
+					}
+					a.aiPanel.Blur()
+					return a, nil
+				}
 			case "q":
 				// q backs out one level; it only quits from the root view.
 				if len(a.stack) > 1 {
@@ -1111,6 +1160,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	top, cmd := a.top().Update(msg)
 	a.stack[len(a.stack)-1] = top
+	// Non-key messages also reach the AI panel (its async Ask events stream in
+	// this way). Keys never do here — the panel only takes keys when focused,
+	// handled above — so an unfocused panel can't swallow the main view's input.
+	if _, isKey := msg.(tea.KeyMsg); !isKey && a.aiPanel != nil {
+		var pcmd tea.Cmd
+		a.aiPanel, pcmd = a.aiPanel.Update(msg)
+		return a, tea.Batch(cmd, pcmd)
+	}
 	return a, cmd
 }
 
@@ -1253,6 +1310,12 @@ func (a *App) View() string {
 		body = a.modal.view(a.width, bodyH)
 	case !a.everSeen && a.failStreak >= 2:
 		body = a.firstRunDiagnosis()
+	case a.aiOpen && a.width >= aiMinTotal:
+		// split the body: main view on the left, AI panel on the right.
+		panelW := aiPanelWidth(a.width)
+		main := a.top().View(a.width-panelW, bodyH)
+		panel := a.aiPanel.View(panelW, bodyH, a.aiFocused)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, main, panel)
 	default:
 		body = a.top().View(a.width, bodyH)
 	}
@@ -1279,6 +1342,32 @@ func (a *App) View() string {
 // so busy views (jobs has ~15) don't spew a wall of keys. The rest live in the
 // full-help overlay (?); the globals are always shown.
 const maxFooterKeys = 9
+
+// AI panel width budget: the panel takes ~a third, clamped, and never starves
+// the main view. The panel only opens at widths where both panes are safe.
+const (
+	aiPanelMin = 34
+	aiPanelMax = 56
+	aiMainMin  = 44
+	aiMinTotal = aiMainMin + aiPanelMin // below this, the toggle refuses to open
+)
+
+func aiPanelWidth(total int) int {
+	p := total / 3
+	if p > aiPanelMax {
+		p = aiPanelMax
+	}
+	if p < aiPanelMin {
+		p = aiPanelMin
+	}
+	if total-p < aiMainMin {
+		p = total - aiMainMin
+	}
+	if p < 20 {
+		p = 20
+	}
+	return p
+}
 
 // keyLegend renders the footer hotkey bar k9s-style: each key in the brand
 // accent, its description dim, dot-separated. It shows the view's first few

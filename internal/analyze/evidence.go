@@ -153,6 +153,21 @@ func NewScrubber(names []string) *Scrubber {
 	return &Scrubber{names: names, mapping: map[string]string{}}
 }
 
+// AddName registers another name to mask, without resetting the placeholder
+// mapping — so a long-lived scrubber (e.g. the AI panel, as the operator
+// navigates between jobs) keeps stable placeholders while learning new names.
+func (s *Scrubber) AddName(name string) {
+	if name == "" {
+		return
+	}
+	for _, n := range s.names {
+		if n == name {
+			return
+		}
+	}
+	s.names = append(s.names, name)
+}
+
 func (s *Scrubber) replace(real, kind string) string {
 	for ph, v := range s.mapping {
 		if v == real {
