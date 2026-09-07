@@ -118,29 +118,30 @@ func (j *Jobs) Title() string   { return j.title }
 func (j *Jobs) Filtering() bool { return j.filterOn }
 func (j *Jobs) Bindings() []key.Binding {
 	bs := []key.Binding{
+		// primary — the first maxFooterKeys of these show in the footer bar;
+		// the rest are in the ? full-help overlay.
 		binding("enter", "enter", "detail"),
+		binding("a", "a", "AI"),
 		binding("c", "c", "ckpts"),
 		binding("x", "x", "exceptions"),
 		binding("s", "s", "savepoint"),
+		binding("/", "/", "filter"),
+		binding("o", "o", "sort"),
+		binding("t", "t", "taskmanagers"),
+		binding("m", "m", "metrics"),
+		// secondary — ? only
 		binding("S", "S", "stop+savepoint"),
 		binding("ctrl+x", "ctrl-x", "cancel"),
 		binding("p", "p", "ledger"),
-		binding("t", "t", "taskmanagers"),
 		binding("C", "C", "contexts"),
 		binding("K", "K", "k8s deployments"),
-		binding("m", "m", "metrics explorer"),
-		binding("a", "a", "ai explain"),
-		binding("A", "A", "agentic investigate"),
-		binding("@", "@", "ask ai"),
 		binding("Q", "Q", "sql console"),
-		binding("o", "o", "sort"),
 		binding("l", "l", "JM log"),
 		binding("L", "L", "job logs (merged TMs)"),
 		binding("h", "h", "archaeology"),
 		binding("P", "P", "cluster pulse"),
 		binding("y", "y", "describe"),
 		binding("Y", "Y", "copy jid"),
-		binding("/", "/", "filter"),
 	}
 	for _, pl := range j.deps.Plugins {
 		bs = append(bs, binding(pl.Key, pl.Key, pl.Description))
@@ -329,15 +330,7 @@ func (j *Jobs) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return j, push(NewMetrics(j.deps, job))
 		case "a":
 			if job, ok := j.selected(); ok {
-				return j, explainJob(j.deps, job.JID, job.Name)
-			}
-		case "A":
-			if job, ok := j.selected(); ok {
-				return j, investigateJob(j.deps, job.JID, job.Name)
-			}
-		case "@":
-			if job, ok := j.selected(); ok {
-				return j, askScope(j.deps, job.JID, job.Name)
+				return j, push(NewAIMenu(j.deps, job.JID, job.Name))
 			}
 		case "Q":
 			url := j.deps.Cfg.Contexts[j.deps.Ctx].SQLGateway

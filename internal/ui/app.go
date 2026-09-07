@@ -1272,24 +1272,45 @@ func (a *App) View() string {
 		return out + " " + a.cmdInput.View() + hint +
 			styles.Dim().Render("   jobs · tms · savepoints · contexts · k8s · sql · log · inv · config · history · quit")
 	}
-	return out + a.keyLegend(append(a.top().Bindings(), globalBindings()...))
+	return out + a.keyLegend(a.top().Bindings(), globalBindings())
 }
 
+// maxFooterKeys caps how many of a view's own hotkeys the footer advertises,
+// so busy views (jobs has ~15) don't spew a wall of keys. The rest live in the
+// full-help overlay (?); the globals are always shown.
+const maxFooterKeys = 9
+
 // keyLegend renders the footer hotkey bar k9s-style: each key in the brand
-// accent, its description dim, segments joined by a dim dot and clipped to the
-// terminal width (press ? for the full grid).
-func (a *App) keyLegend(bindings []key.Binding) string {
-	parts := make([]string, 0, len(bindings))
-	for _, b := range bindings {
+// accent, its description dim, dot-separated. It shows the view's first few
+// keys (a "…" marks the rest, discoverable via ?) and always the globals.
+func (a *App) keyLegend(view, global []key.Binding) string {
+	seg := func(b key.Binding) (string, bool) {
 		h := b.Help()
 		if h.Key == "" {
-			continue
+			return "", false
 		}
-		seg := styles.Accent().Render(h.Key)
+		s := styles.Accent().Render(h.Key)
 		if h.Desc != "" {
-			seg += " " + styles.Dim().Render(h.Desc)
+			s += " " + styles.Dim().Render(h.Desc)
 		}
-		parts = append(parts, seg)
+		return s, true
+	}
+	var parts []string
+	shown := 0
+	for _, b := range view {
+		if shown >= maxFooterKeys {
+			parts = append(parts, styles.Dim().Render("… ? more"))
+			break
+		}
+		if s, ok := seg(b); ok {
+			parts = append(parts, s)
+			shown++
+		}
+	}
+	for _, b := range global { // globals always shown
+		if s, ok := seg(b); ok {
+			parts = append(parts, s)
+		}
 	}
 	line := " " + strings.Join(parts, styles.Dim().Render(" · "))
 	return lipgloss.NewStyle().MaxWidth(a.width).Render(line)
