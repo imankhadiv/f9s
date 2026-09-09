@@ -187,6 +187,19 @@ func (c *CheckpointsView) View(width, height int) string {
 				c.cfg.Mode, model.FmtDuration(c.cfg.Interval), model.FmtDuration(c.cfg.Timeout),
 				unaligned)) + backendBadge(c.cfg) + "\n"
 			used++
+			if f := c.cp.Latest.Failed; f.FailureTimestamp > 0 {
+				msg := f.FailureMessage
+				if msg == "" {
+					msg = "no message reported"
+				}
+				ack := ""
+				if f.NumSubtasks > 0 {
+					ack = fmt.Sprintf(" · acked %d/%d", f.NumAcknowledged, f.NumSubtasks)
+				}
+				out += styles.ErrText().Render(fmt.Sprintf(" ⚠ last checkpoint FAILED %s ago", model.FmtAge(f.FailureTimestamp))) +
+					styles.Dim().Render(fmt.Sprintf(" (id %d%s) — %s", f.ID, ack, truncate(msg, 80))) + "\n"
+				used++
+			}
 			var durations []int64
 			for _, cp := range c.cp.History { // newest first
 				if cp.Status == "COMPLETED" && !cp.IsSavepoint {

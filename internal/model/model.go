@@ -230,7 +230,27 @@ type CheckpointSummary struct {
 type Checkpoints struct {
 	Counts  CheckpointCounts  `json:"counts"`
 	Summary CheckpointSummary `json:"summary"`
+	Latest  CheckpointLatest  `json:"latest"`
 	History []Checkpoint      `json:"history"`
+}
+
+// CheckpointLatest is the "latest" block of GET /jobs/:jid/checkpoints: the
+// most recent completed/failed/restored checkpoint. The failed sub-object is
+// the only place a failure REASON reliably lives (history rows rarely carry it).
+type CheckpointLatest struct {
+	Failed struct {
+		ID               int64  `json:"id"`
+		FailureMessage   string `json:"failure_message"`
+		FailureTimestamp int64  `json:"failure_timestamp"`
+		NumAcknowledged  int    `json:"num_acknowledged_subtasks"`
+		NumSubtasks      int    `json:"num_subtasks"`
+	} `json:"failed"`
+	Restored struct {
+		ID               int64  `json:"id"`
+		RestoreTimestamp int64  `json:"restore_timestamp"`
+		IsSavepoint      bool   `json:"is_savepoint"`
+		ExternalPath     string `json:"external_path"`
+	} `json:"restored"`
 }
 
 // JobConfig is GET /jobs/:jid/config.
