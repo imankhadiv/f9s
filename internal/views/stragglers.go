@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -135,11 +136,85 @@ func fmtDurMs(ms int64) string {
 	return model.FmtDuration(ms)
 }
 
+// blockedShare is how much of a subtask's end-to-end checkpoint time was spent
+// blocked before/around the snapshot — barrier alignment or start delay. A high
+// share means the subtask couldn't get on with its snapshot because its task
+// thread was backpressured: the real checkpoint smoking gun.
+func blockedShare(st model.CheckpointSubtask) float64 {
+	if st.E2E <= 0 {
+		return 0
+	}
+	blocked := st.StartDelay
+	if st.Alignment.Duration > blocked {
+		blocked = st.Alignment.Duration
+	}
+	return float64(blocked) / float64(st.E2E)
+}
+
+// heatmap draws one row per vertex, one cell per subtask, shaded by blockedShare
+// so a single stuck subtask jumps out at a glance.
+func (v *Stragglers) heatmap(width int) string {
+	// group by vertex, first-seen order, subtasks in index order
+	order := []string{}
+	byVtx := map[string][]model.CheckpointSubtask{}
+	for _, r := range v.rows {
+		if _, ok := byVtx[r.vertex]; !ok {
+			order = append(order, r.vertex)
+		}
+		byVtx[r.vertex] = append(byVtx[r.vertex], r.st)
+	}
+	cell := func(share float64) string {
+		switch {
+		case share >= 0.75:
+			return styles.ErrText().Render("█")
+		case share >= 0.5:
+			return styles.WarnText().Render("▓")
+		case share >= 0.25:
+			return styles.Dim().Render("▒")
+		default:
+			return styles.OKText().Render("░")
+		}
+	}
+	labelW := 20
+	cellsW := width - labelW - 3
+	if cellsW < 4 {
+		cellsW = 4
+	}
+	var b strings.Builder
+	b.WriteString(styles.Dim().Render("  per-subtask blocked share (align/start-delay ÷ e2e):  ░ low  ▒  ▓  █ high") + "\n")
+	for _, vx := range order {
+		subs := byVtx[vx]
+		sort.SliceStable(subs, func(a, b int) bool { return subs[a].Index < subs[b].Index })
+		row := make([]string, 0, len(subs))
+		worst := 0.0
+		for _, st := range subs {
+			s := blockedShare(st)
+			if s > worst {
+				worst = s
+			}
+			row = append(row, cell(s))
+			if len(row) >= cellsW {
+				break
+			}
+		}
+		note := ""
+		if worst >= 0.75 {
+			note = styles.ErrText().Render(fmt.Sprintf("  ⚠ %.0f%% blocked", worst*100))
+		}
+		b.WriteString(fmt.Sprintf(" %-*s %s%s\n", labelW, truncate(vx, labelW), strings.Join(row, ""), note))
+	}
+	return b.String()
+}
+
 func (v *Stragglers) View(width, height int) string {
 	title := fmt.Sprintf("Checkpoint %d — per-subtask breakdown", v.cpID)
 	return framed(width, height, title, -1, "", func(iw, ih int) string {
-		out := styles.Dim().Render("  slowest first · ALIGN amber = barrier wait dominated") + "\n"
-		used := 1
+		heat := ""
+		if len(v.rows) > 0 {
+			heat = v.heatmap(iw) + "\n"
+		}
+		out := heat + styles.Dim().Render("  slowest first · ALIGN amber = barrier wait dominated") + "\n"
+		used := countLines(out)
 		if v.err != "" {
 			out += styles.ErrText().Render("⚠ "+v.err) + "\n"
 			used++
@@ -147,4 +222,22 @@ func (v *Stragglers) View(width, height int) string {
 		v.tbl.SetSize(iw, ih-used)
 		return out + v.tbl.View()
 	})
+}
+
+// countLines counts rendered rows in a block (newline count + 1 when the block
+// is non-empty and unterminated), so the table gets the right height.
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := 0
+	for _, c := range s {
+		if c == '\n' {
+			n++
+		}
+	}
+	if len(s) > 0 && s[len(s)-1] != '\n' {
+		n++
+	}
+	return n
 }
