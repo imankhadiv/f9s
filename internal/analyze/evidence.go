@@ -87,6 +87,14 @@ func BuildEvidence(cl *client.Client, jid string) (string, error) {
 		default:
 			fmt.Fprintf(&b, "RECOVERY POINT: recovery=%s\n", recovery)
 		}
+
+		// The latest.failed block is the reliable source of a failure REASON —
+		// history rows rarely carry one. Surface it so the model diagnoses the
+		// cause instead of just noting failed>0.
+		if f := cp.Latest.Failed; f.FailureTimestamp > 0 {
+			fmt.Fprintf(&b, "CHECKPOINT FAILURE: id=%d age=%s acked=%d/%d reason=%q\n",
+				f.ID, model.FmtAge(f.FailureTimestamp), f.NumAcknowledged, f.NumSubtasks, firstLine(f.FailureMessage))
+		}
 	}
 
 	// per-vertex backpressure / busy / watermarks, plus the computed bottleneck
@@ -100,9 +108,19 @@ func BuildEvidence(cl *client.Client, jid string) (string, error) {
 			busy = bz
 		}
 		samples[i] = VertexSample{ID: v.ID, Name: v.Name, Level: level, BusyMsPerSec: busy, Parallelism: v.Parallelism}
-		fmt.Fprintf(&b, "VERTEX %q parallelism=%d status=%s backpressure=%s busy=%.0fms/s in=%d out=%d\n",
+		fmt.Fprintf(&b, "VERTEX %q parallelism=%d status=%s backpressure=%s busy=%.0fms/s in=%d out=%d",
 			v.Name, v.Parallelism, v.Status, orUnknown(level), busy,
 			v.Metrics.ReadRecords, v.Metrics.WriteRecords)
+		// For a backpressured vertex, name the EDGE from the network buffer
+		// pools: output-full = downstream is the constraint (this vertex is a
+		// victim), input-starved = upstream is, busy+clear = this vertex itself.
+		if level == "high" || level == "low" {
+			if sp, err := cl.VertexSubtaskPressure(jid, v.ID, v.Parallelism); err == nil && len(sp.Busy) > 0 {
+				edge := BackpressureEdge(sp.Busy, sp.InPool, sp.OutPool)
+				fmt.Fprintf(&b, " edge=%s inPoolMax=%.2f outPoolMax=%.2f", edge.Kind, maxF(sp.InPool), maxF(sp.OutPool))
+			}
+		}
+		b.WriteString("\n")
 	}
 	if idx := Bottleneck(samples); idx >= 0 {
 		fmt.Fprintf(&b, "COMPUTED BOTTLENECK: %q (busy but not backpressured downstream of backpressure)\n", job.Vertices[idx].Name)
@@ -148,6 +166,24 @@ func firstLines(s string, n int) string {
 		lines = append(lines[:n], "  …(truncated)")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// firstLine keeps a failure message to a single line for an inline field.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+func maxF(s []float64) float64 {
+	m := 0.0
+	for _, v := range s {
+		if v > m {
+			m = v
+		}
+	}
+	return m
 }
 
 var (
