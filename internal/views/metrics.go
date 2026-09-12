@@ -1,6 +1,7 @@
 package views
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -194,12 +195,15 @@ func (m *MetricsExplorer) Refresh() tea.Cmd {
 			i, it := i, it
 			cmds = append(cmds, func() tea.Msg {
 				ms, err := cl.MetricValues(it.path, it.keys)
-				if err != nil || len(ms) == 0 {
-					return pinValueMsg{idx: i, err: fmt.Errorf("pin: %v", err)}
+				if err != nil {
+					return pinValueMsg{idx: i, err: fmt.Errorf("pin: %w", err)}
+				}
+				if len(ms) == 0 {
+					return pinValueMsg{idx: i, err: errors.New("pin: no values returned")}
 				}
 				val, ok := ms[0].Float()
 				if !ok {
-					return pinValueMsg{idx: i, err: fmt.Errorf("pin: no value")}
+					return pinValueMsg{idx: i, err: errors.New("pin: no numeric value returned")}
 				}
 				return pinValueMsg{idx: i, value: val}
 			})
@@ -213,16 +217,23 @@ func (m *MetricsExplorer) Refresh() tea.Cmd {
 	it := *m.inspect
 	return func() tea.Msg {
 		ms, err := cl.MetricValues(it.path, it.keys)
-		if err != nil || len(ms) == 0 {
-			return metricValueMsg{display: it.display, err: fmt.Errorf("fetch: %v", err)}
+		if err != nil {
+			return metricValueMsg{display: it.display, err: fmt.Errorf("fetch: %w", err)}
 		}
-		val, _ := ms[0].Float()
+		if len(ms) == 0 {
+			return metricValueMsg{display: it.display, err: errors.New("fetch: no values returned")}
+		}
+		val, ok := ms[0].Float()
+		if !ok {
+			return metricValueMsg{display: it.display, err: errors.New("fetch: no numeric value returned")}
+		}
 		out := metricValueMsg{display: it.display, value: val, skew: -1}
 		if ms[0].Value == "" && ms[0].Min != nil && ms[0].Max != nil && ms[0].Avg != nil {
 			out.agg = fmt.Sprintf("min %.0f · avg %.0f · max %.0f (across the fleet)", *ms[0].Min, *ms[0].Avg, *ms[0].Max)
 		}
 		if it.vid != "" && it.par >= 2 {
 			if vals, err := cl.SubtaskMetric(it.jid, it.vid, it.keys[0], it.par); err == nil && len(vals) > 0 {
+				out.vals = vals
 				minV, maxV, sum := vals[0], vals[0], 0.0
 				for _, v := range vals {
 					if v < minV {
