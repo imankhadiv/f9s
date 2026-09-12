@@ -1024,6 +1024,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, a.top().Refresh())
 
 	case tea.KeyMsg:
+		if a.showHelp {
+			switch msg.String() {
+			case "ctrl+c":
+				return a, tea.Quit
+			case "esc", "q", "?":
+				a.showHelp = false
+			}
+			return a, nil
+		}
 		if a.paletteMode {
 			return a.handlePaletteKey(msg)
 		}
@@ -1143,10 +1152,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.showHelp = !a.showHelp
 				return a, nil
 			case "esc":
-				if a.showHelp {
-					a.showHelp = false
-					return a, nil
-				}
 				if len(a.stack) > 1 {
 					a.stack = a.stack[:len(a.stack)-1]
 					return a, nil
