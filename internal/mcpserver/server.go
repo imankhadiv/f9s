@@ -1,7 +1,7 @@
 // Package mcpserver exposes f9s's tool registry as an MCP server over
 // stdio, so any MCP client (Claude Code, Claude Desktop, Cursor, …) can
 // operate a Flink cluster through f9s. Read tools are always available;
-// mutating tools exist only when started with --allow-writes.
+// mutating tools require --allow-writes and a context that is not read-only.
 package mcpserver
 
 import (
@@ -16,11 +16,13 @@ import (
 	"github.com/imankhadiv/f9s/internal/tools"
 )
 
-// Run serves MCP over stdio until the client disconnects.
-func Run(cfg *config.Config, contextName, version string, allowWrites bool) error {
+func newServer(cfg *config.Config, contextName, version string, allowWrites bool) (*server.MCPServer, error) {
 	name, cctx, err := cfg.Resolve(contextName)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	if allowWrites && cctx.ReadOnly {
+		return nil, fmt.Errorf("context %q has readOnly: true; refusing --allow-writes", name)
 	}
 	cl := client.New(cctx)
 	registry := tools.New(cl, name)
@@ -29,7 +31,7 @@ func Run(cfg *config.Config, contextName, version string, allowWrites bool) erro
 		server.WithInstructions(fmt.Sprintf(
 			"Operate the Apache Flink cluster behind f9s context %q (%s). "+
 				"Read tools are always available. Mutating tools (savepoint/stop/cancel) "+
-				"are registered only when the operator started f9s mcp with --allow-writes.",
+				"require --allow-writes and a context that is not marked readOnly.",
 			name, cctx.URL)))
 
 	for _, t := range registry.List(allowWrites) {
@@ -63,5 +65,14 @@ func Run(cfg *config.Config, contextName, version string, allowWrites bool) erro
 		})
 	}
 
+	return s, nil
+}
+
+// Run serves MCP over stdio until the client disconnects.
+func Run(cfg *config.Config, contextName, version string, allowWrites bool) error {
+	s, err := newServer(cfg, contextName, version, allowWrites)
+	if err != nil {
+		return err
+	}
 	return server.ServeStdio(s)
 }
