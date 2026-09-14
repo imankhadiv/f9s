@@ -164,10 +164,10 @@ var commandTargets = []struct {
 	names []string
 	desc  string
 }{
-	{[]string{"jobs", "job"}, "jobs"},
+	{[]string{"jobs", "job", "j"}, "jobs"},
 	{[]string{"cluster", "cl"}, "cluster components (JM + TMs)"},
 	{[]string{"tms", "tm", "taskmanagers"}, "taskmanagers"},
-	{[]string{"savepoints", "sp", "ledger"}, "savepoint ledger"},
+	{[]string{"savepoints", "sp", "ledger", "led", "s"}, "savepoint ledger"},
 	{[]string{"contexts", "ctx"}, "contexts"},
 	{[]string{"k8s", "kube", "deployments"}, "flinkdeployments"},
 	{[]string{"sql"}, "sql console"},
@@ -186,26 +186,85 @@ var commandTargets = []struct {
 	{[]string{"quit", "q"}, "quit"},
 }
 
-// resolveCommand returns the canonical command for an input, matching exact
-// names first, then a unique prefix; "" when nothing (or too much) matches.
-func resolveCommand(input string) string {
+// commandCandidates returns the distinct canonical commands matching input.
+// An exact name or alias wins outright. Otherwise every name is prefix-matched
+// and the hits are deduped by destination, so ambiguity is measured in places
+// the user could land — ":ta" is unambiguous (only taskmanagers) while ":c" is
+// not (cluster, contexts, config, ...).
+func commandCandidates(input string) []string {
 	if input == "" {
-		return ""
+		return nil
 	}
-	// Exact name or alias wins; otherwise the first prefix match in table
-	// order (so ":j" keeps meaning jobs even though jars also starts with j).
-	var prefixHit string
 	for _, t := range commandTargets {
 		for _, n := range t.names {
 			if n == input {
-				return t.names[0]
-			}
-			if prefixHit == "" && strings.HasPrefix(n, input) {
-				prefixHit = t.names[0]
+				return []string{t.names[0]}
 			}
 		}
 	}
-	return prefixHit
+	var matches []string
+	seen := map[string]bool{}
+	for _, t := range commandTargets {
+		for _, n := range t.names {
+			if strings.HasPrefix(n, input) && !seen[t.names[0]] {
+				seen[t.names[0]] = true
+				matches = append(matches, t.names[0])
+			}
+		}
+	}
+	return matches
+}
+
+// resolveCommand returns a canonical command only for an exact alias or a
+// unique canonical prefix.
+func resolveCommand(input string) string {
+	matches := commandCandidates(input)
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	return ""
+}
+
+func commandList() string {
+	names := make([]string, len(commandTargets))
+	for i, target := range commandTargets {
+		names[i] = target.names[0]
+	}
+	return strings.Join(names, " · ")
+}
+
+func commandGuide(width int) string {
+	return fitText("   "+commandList(), width)
+}
+
+// fitText truncates s to width columns, marking the cut with an ellipsis.
+// Width <= 0 yields "" — there is no room to say anything.
+func fitText(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	if width == 1 {
+		return "…"
+	}
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes)+"…") > width {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "…"
+}
+
+// fitFlash keeps a flash line inside the terminal. The command list is the
+// tail of every such message, so truncation drops guidance before it drops
+// the error itself. Width 0 means the first WindowSizeMsg has not landed yet
+// and nothing is being rendered, so the text passes through unbounded.
+func (a *App) fitFlash(s string) string {
+	if a.width <= 0 {
+		return s
+	}
+	return fitText(s, a.width-1) // flashLine indents by one column
 }
 
 // runCommand navigates to the resolved command's view.
@@ -267,7 +326,7 @@ func (a *App) runCommand(cmd string) tea.Cmd {
 	case "quit":
 		return tea.Quit
 	default:
-		return a.setFlash("unknown command :"+cmd+"  (jobs · tms · savepoints · contexts · k8s · sql · log · inv · config · history · quit)", true)
+		return a.setFlash(a.fitFlash("unknown command :"+cmd+"  ("+commandList()+")"), true)
 	}
 	a.stack = []views.Model{jobs, target}
 	return tea.Batch(jobs.Init(), target.Init())
@@ -1057,15 +1116,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.cmdInput.Blur()
 				return a, nil
 			case "enter":
-				cmd := resolveCommand(strings.TrimSpace(a.cmdInput.Value()))
-				a.cmdMode = false
 				input := strings.TrimSpace(a.cmdInput.Value())
+				matches := commandCandidates(input)
+				a.cmdMode = false
 				a.cmdInput.SetValue("")
 				a.cmdInput.Blur()
-				if cmd == "" {
-					return a, a.setFlash("unknown command :"+input+"  (jobs · tms · savepoints · contexts · k8s · sql · log · inv · config · history · quit)", true)
+				switch len(matches) {
+				case 0:
+					return a, a.setFlash(a.fitFlash("unknown command :"+input+"  ("+commandList()+")"), true)
+				case 1:
+					return a, a.runCommand(matches[0])
+				default:
+					return a, a.setFlash(a.fitFlash("ambiguous command :"+input+"  (matches: "+strings.Join(matches, " · ")+")"), true)
 				}
-				return a, a.runCommand(cmd)
 			}
 			var cmd tea.Cmd
 			a.cmdInput, cmd = a.cmdInput.Update(msg)
@@ -1333,12 +1396,20 @@ func (a *App) View() string {
 		out += flash + "\n"
 	}
 	if a.cmdMode {
+		head := " " + a.cmdInput.View()
+		// the candidate list grows with ambiguity (":c" reaches six views), so
+		// fit it before styling — lipgloss.Width would otherwise be measuring
+		// escape codes we cannot cut cleanly.
+		avail := a.width - lipgloss.Width(head)
 		hint := ""
-		if r := resolveCommand(strings.TrimSpace(a.cmdInput.Value())); r != "" {
-			hint = styles.OKText().Render("  → " + r)
+		matches := commandCandidates(strings.TrimSpace(a.cmdInput.Value()))
+		if len(matches) == 1 {
+			hint = styles.OKText().Render(fitText("  → "+matches[0], avail))
+		} else if len(matches) > 1 {
+			hint = styles.WarnText().Render(fitText("  ? "+strings.Join(matches, " · "), avail))
 		}
-		return out + " " + a.cmdInput.View() + hint +
-			styles.Dim().Render("   jobs · tms · savepoints · contexts · k8s · sql · log · inv · config · history · quit")
+		line := head + hint
+		return out + line + styles.Dim().Render(commandGuide(a.width-lipgloss.Width(line)))
 	}
 	return out + a.keyLegend(a.top().Bindings(), globalBindings())
 }
