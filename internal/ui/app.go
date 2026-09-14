@@ -535,13 +535,16 @@ type vertexSample struct {
 type jobHealth struct {
 	jid, job    string
 	ckptBad     bool // last two checkpoints FAILED
-	numRestarts int  // -1 unknown
+	ckptKnown   bool
+	numRestarts int // -1 unknown
 	snap        *snapshot.Snap
 }
 
 type sentinelMsg struct {
-	samples []vertexSample
-	jobs    []jobHealth
+	samples       []vertexSample
+	jobs          []jobHealth
+	liveJIDs      map[string]bool
+	authoritative bool
 }
 
 func (a *App) sentinelTick() tea.Cmd {
@@ -558,11 +561,13 @@ func (a *App) collectSentinel() tea.Cmd {
 		}
 		var out []vertexSample
 		var health []jobHealth
+		live := map[string]bool{}
 		now := time.Now()
 		for _, j := range jobs {
 			if j.State != "RUNNING" && j.State != "RESTARTING" && j.State != "FAILING" {
 				continue
 			}
+			live[j.JID] = true
 			job, err := cl.Job(j.JID)
 			if err != nil {
 				continue
@@ -580,8 +585,11 @@ func (a *App) collectSentinel() tea.Cmd {
 				snap.Restart = jc.ExecutionConfig.RestartStrategy
 			}
 			h.snap = &snap
-			if cp, err := cl.Checkpoints(j.JID); err == nil && len(cp.History) >= 2 {
-				h.ckptBad = cp.History[0].Status == "FAILED" && cp.History[1].Status == "FAILED"
+			if cp, err := cl.Checkpoints(j.JID); err == nil {
+				h.ckptKnown = true
+				if len(cp.History) >= 2 {
+					h.ckptBad = cp.History[0].Status == "FAILED" && cp.History[1].Status == "FAILED"
+				}
 			}
 			if ms, err := cl.JobMetrics(j.JID, "numRestarts"); err == nil {
 				for _, m := range ms {
@@ -614,7 +622,7 @@ func (a *App) collectSentinel() tea.Cmd {
 				})
 			}
 		}
-		return sentinelMsg{samples: out, jobs: health}
+		return sentinelMsg{samples: out, jobs: health, liveJIDs: live, authoritative: true}
 	}
 }
 
@@ -780,14 +788,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sentinelMsg:
 		a.sentRunning = false
 		var cmds []tea.Cmd
-		live := map[string]bool{}
-		for _, h := range msg.jobs {
-			live[h.jid] = true
+		live := msg.liveJIDs
+		if live == nil {
+			live = map[string]bool{}
 		}
-		for _, vs := range msg.samples {
-			live[vs.key.JID] = true
+		if msg.authoritative {
+			a.sent.Prune(live)
 		}
-		a.sent.Prune(live)
 		for _, h := range msg.jobs {
 			if h.snap == nil {
 				continue
@@ -800,15 +807,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, flash)
 		}
 		a.watchStore.PruneRecent(time.Now())
-		for jid := range a.lastRestarts {
-			if !live[jid] {
-				delete(a.lastRestarts, jid)
+		if msg.authoritative {
+			for jid := range a.lastRestarts {
+				if !live[jid] {
+					delete(a.lastRestarts, jid)
+				}
 			}
 		}
 		now := time.Now()
 		for _, h := range msg.jobs {
 			k := sentinel.Key{JID: h.jid, VID: "job"}
-			if o, c := a.sent.ObserveCondition(k, "checkpoint", h.job, "checkpointing", h.ckptBad, now); o != nil || c != nil {
+			if o, c := a.sent.ObserveConditionKnown(k, "checkpoint", h.job, "checkpointing", h.ckptBad, h.ckptKnown, now); o != nil || c != nil {
 				if o != nil {
 					a.notifyAlert("checkpoint failures", o.Job)
 					cmds = append(cmds, a.setFlash("⚠ checkpoint failures: "+o.Job+" (2+ consecutive)", true))

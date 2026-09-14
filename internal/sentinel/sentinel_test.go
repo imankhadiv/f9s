@@ -63,6 +63,47 @@ func TestAlertClosesWithHysteresisAndRecordsEpisode(t *testing.T) {
 	}
 }
 
+func TestUnknownBackpressureDoesNotClearOpenAlert(t *testing.T) {
+	s := New()
+	obs(s, "high", 3)
+	if len(s.OpenAlerts()) != 1 {
+		t.Fatal("expected an open alert")
+	}
+	if _, closed := obs(s, "", 10); closed != nil {
+		t.Fatal("unknown samples must not clear an alert")
+	}
+	if len(s.OpenAlerts()) != 1 {
+		t.Fatal("unknown samples removed the open alert")
+	}
+	if _, closed := obs(s, "ok", 3); closed == nil {
+		t.Fatal("known recovery must still close the alert")
+	}
+}
+
+func TestUnknownConditionDoesNotClearOpenAlert(t *testing.T) {
+	s := New()
+	k := Key{JID: "j1", VID: "job"}
+	now := time.Now()
+	for range [3]int{} {
+		s.ObserveConditionKnown(k, "checkpoint", "job", "checkpointing", true, true, now)
+	}
+	for range [10]int{} {
+		if _, closed := s.ObserveConditionKnown(k, "checkpoint", "job", "checkpointing", false, false, now); closed != nil {
+			t.Fatal("unknown conditions must not clear an alert")
+		}
+	}
+	if len(s.OpenAlerts()) != 1 {
+		t.Fatal("unknown conditions removed the open alert")
+	}
+	var closed *Alert
+	for range [3]int{} {
+		_, closed = s.ObserveConditionKnown(k, "checkpoint", "job", "checkpointing", false, true, now)
+	}
+	if closed == nil {
+		t.Fatal("known healthy conditions must close the alert")
+	}
+}
+
 func TestHistoryRingCaps(t *testing.T) {
 	s := New()
 	k := Key{JID: "j1", VID: "v1"}

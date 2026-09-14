@@ -162,6 +162,10 @@ func (s *Sentinel) persist(k Key, sample Sample) {
 
 func bad(level string) bool { return level == "high" }
 
+func known(level string) bool {
+	return level == "ok" || level == "low" || level == "high"
+}
+
 // Observe records one sample and returns the alert opened or closed by it
 // (nil, nil for no transition).
 func (s *Sentinel) Observe(k Key, job, vertex string, sample Sample) (opened, closed *Alert) {
@@ -174,6 +178,10 @@ func (s *Sentinel) Observe(k Key, job, vertex string, sample Sample) (opened, cl
 	}
 	s.buf[k] = buf
 	s.persist(k, sample)
+
+	if !known(sample.Level) {
+		return nil, nil
+	}
 
 	st := s.state[k]
 	if st == nil {
@@ -220,6 +228,15 @@ func (s *Sentinel) Observe(k Key, job, vertex string, sample Sample) (opened, cl
 // streaks, restart loops): fireAfter consecutive bad observations open an
 // alert of the given kind, clearAfter good ones close it.
 func (s *Sentinel) ObserveCondition(k Key, kind, job, vertex string, isBad bool, t time.Time) (opened, closed *Alert) {
+	return s.ObserveConditionKnown(k, kind, job, vertex, isBad, true, t)
+}
+
+// ObserveConditionKnown observes a boolean condition only when its telemetry
+// is authoritative. Unknown samples pause both fire and recovery streaks.
+func (s *Sentinel) ObserveConditionKnown(k Key, kind, job, vertex string, isBad, isKnown bool, t time.Time) (opened, closed *Alert) {
+	if !isKnown {
+		return nil, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ck := k
