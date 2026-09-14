@@ -274,22 +274,29 @@ func (c *Client) UploadJar(localPath string) (string, error) {
 	return filepath.Base(v.Filename), nil
 }
 
-// JarPlan is GET /jars/:id/plan — the topology the jar would deploy.
+// JarPlan is POST /jars/:id/plan — the topology the jar would deploy.
 func (c *Client) JarPlan(jarID string) (model.Plan, error) {
 	var v struct {
 		Plan model.Plan `json:"plan"`
 	}
-	err := c.get("/jars/"+jarID+"/plan", &v)
+	err := c.send(http.MethodPost, "/jars/"+jarID+"/plan", map[string]any{}, &v)
 	return v.Plan, err
+}
+
+// RunJarOptions controls a jar submission. AllowNonRestoredState is unsafe:
+// Flink may discard savepoint state that cannot be mapped to the submitted job.
+type RunJarOptions struct {
+	SavepointPath         string
+	AllowNonRestoredState bool
 }
 
 // RunJar is POST /jars/:id/run — submits a job, optionally restoring from a
 // savepoint. Returns the new job id.
-func (c *Client) RunJar(jarID, savepointPath string) (string, error) {
+func (c *Client) RunJar(jarID string, opts RunJarOptions) (string, error) {
 	body := map[string]any{}
-	if savepointPath != "" {
-		body["savepointPath"] = savepointPath
-		body["allowNonRestoredState"] = true
+	if opts.SavepointPath != "" {
+		body["savepointPath"] = opts.SavepointPath
+		body["allowNonRestoredState"] = opts.AllowNonRestoredState
 	}
 	var v struct {
 		JobID string `json:"jobid"`

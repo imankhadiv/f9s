@@ -29,6 +29,35 @@ type jarActionMsg struct {
 	err  error
 }
 
+type restoreRisk int
+
+const (
+	restoreSafe restoreRisk = iota
+	restoreUnknown
+	restoreUnsafe
+)
+
+type restoreCheck struct {
+	risk    restoreRisk
+	message string
+}
+
+type restorePreflightMsg struct {
+	// owner is the Jars view that asked for this check. The verdict decides
+	// whether to submit, so it must be applied by the view whose client and
+	// context the operator was looking at — never by one that replaced it.
+	owner     *Jars
+	jarID     string
+	savepoint string
+	check     restoreCheck
+}
+
+type restoreApproval struct {
+	jarID     string
+	savepoint string
+	risk      restoreRisk
+}
+
 // promptKind is what the inline textinput is currently collecting.
 type promptKind int
 
@@ -48,6 +77,8 @@ type Jars struct {
 	prompt promptKind
 	filter viewFilter
 	err    string
+	// approval is a one-shot acknowledgement for one exact restore pair.
+	approval *restoreApproval
 }
 
 // NewJars builds the jar submitter view.
@@ -136,6 +167,31 @@ func (j *Jars) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return j, tea.Batch(flash(msg.note), j.Refresh())
 
+	case restorePreflightMsg:
+		if msg.owner != j {
+			return j, nil // preflight for a view replaced by navigation/context switch
+		}
+		if msg.check.risk == restoreSafe {
+			j.approval = nil
+			return j, j.run(msg.jarID, msg.savepoint, false)
+		}
+		if j.approval != nil &&
+			j.approval.jarID == msg.jarID &&
+			j.approval.savepoint == msg.savepoint &&
+			j.approval.risk == msg.check.risk {
+			allowDroppedState := msg.check.risk == restoreUnsafe
+			j.approval = nil
+			return j, j.run(msg.jarID, msg.savepoint, allowDroppedState)
+		}
+		j.approval = &restoreApproval{
+			jarID: msg.jarID, savepoint: msg.savepoint, risk: msg.check.risk,
+		}
+		instruction := "press S and enter the same path again to attempt one strict restore"
+		if msg.check.risk == restoreUnsafe {
+			instruction = "press S and enter the same path again to allow dropping that state once"
+		}
+		return j, flashErrV(msg.check.message + " — " + instruction)
+
 	case tea.KeyMsg:
 		if j.prompt != promptNone {
 			switch msg.String() {
@@ -172,7 +228,7 @@ func (j *Jars) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return j, g
 			}
 			if jar, ok := j.selected(); ok {
-				return j, j.run(jar.ID, "")
+				return j, j.run(jar.ID, "", false)
 			}
 		case "S":
 			if g := readOnlyGuard(j.deps); g != nil {
@@ -226,6 +282,9 @@ func (j *Jars) submit(kind promptKind, value string) tea.Cmd {
 			return jarActionMsg{note: "uploaded " + id}
 		}
 	case promptRestore:
+		if value == "" {
+			return flashErrV("restore needs a savepoint path")
+		}
 		if jar, ok := j.selected(); ok {
 			return j.preflightRestore(jar.ID, value)
 		}
@@ -233,38 +292,25 @@ func (j *Jars) submit(kind promptKind, value string) tea.Cmd {
 	return nil
 }
 
-// restoreAck remembers per (jar, savepoint) that the operator accepted a
-// failed preflight — the second attempt proceeds.
-var restoreAck = map[string]bool{}
-
 // preflightRestore compares the target jar's plan against the savepoint's
 // ORIGINATING job's plan (recovered via the ledger, live cluster, or
 // History Server). Mismatched operator sets mean silently dropped or empty
 // state — the scariest 3am unknown, checked before submission.
 func (j *Jars) preflightRestore(jarID, savepoint string) tea.Cmd {
-	cl := j.deps.CL
 	deps := j.deps
-	runCmd := j.run(jarID, savepoint)
 	return func() tea.Msg {
-		verdict, ok := restorePreflight(deps, jarID, savepoint)
-		if ok || restoreAck[jarID+"|"+savepoint] {
-			if verdict != "" && ok {
-				// fine to submit — surface the positive check via the runner
-			}
-			_ = cl
-			return runCmd()
+		return restorePreflightMsg{
+			owner: j, jarID: jarID, savepoint: savepoint,
+			check: restorePreflight(deps, jarID, savepoint),
 		}
-		restoreAck[jarID+"|"+savepoint] = true
-		return FlashMsg{Text: verdict + " — press S and enter again to submit anyway", IsErr: true}
 	}
 }
 
-// restorePreflight returns (message, okToSubmit).
-func restorePreflight(deps Deps, jarID, savepoint string) (string, bool) {
+func restorePreflight(deps Deps, jarID, savepoint string) restoreCheck {
 	cl := deps.CL
 	jarPlan, err := cl.JarPlan(jarID)
 	if err != nil || len(jarPlan.Nodes) == 0 {
-		return "restore preflight unavailable (no jar plan) — submitting unchecked", true
+		return restoreCheck{risk: restoreUnknown, message: "restore preflight unavailable: target jar plan could not be read"}
 	}
 	// find the savepoint's originating job in the ledger
 	originJID := ""
@@ -277,15 +323,19 @@ func restorePreflight(deps Deps, jarID, savepoint string) (string, bool) {
 		}
 	}
 	if originJID == "" {
-		return "restore preflight: savepoint not in the ledger (origin unknown) — submitting unchecked", true
+		return restoreCheck{risk: restoreUnknown, message: "restore preflight unavailable: savepoint origin is not in this context's ledger"}
 	}
 	originPlan, err := cl.JobPlan(originJID)
-	if err != nil && deps.Cfg.Contexts[deps.Ctx].HistoryServer != "" {
-		hs := client.New(config.Context{URL: deps.Cfg.Contexts[deps.Ctx].HistoryServer})
+	historyServer := ""
+	if deps.Cfg != nil {
+		historyServer = deps.Cfg.Contexts[deps.Ctx].HistoryServer
+	}
+	if err != nil && historyServer != "" {
+		hs := client.New(config.Context{URL: historyServer})
 		originPlan, err = hs.JobPlan(originJID)
 	}
 	if err != nil || len(originPlan.Nodes) == 0 {
-		return "restore preflight: originating job's plan unreachable — submitting unchecked", true
+		return restoreCheck{risk: restoreUnknown, message: "restore preflight unavailable: originating job plan is unreachable"}
 	}
 	jarIDs := map[string]string{}
 	for _, n := range jarPlan.Nodes {
@@ -308,16 +358,22 @@ func restorePreflight(deps Deps, jarID, savepoint string) (string, bool) {
 			extra = fmt.Sprintf(" (+%d more)", len(shown)-2)
 			shown = shown[:2]
 		}
-		return fmt.Sprintf("⚠ RESTORE PREFLIGHT: %d savepoint operators missing from this jar (%s%s) — that state would be DROPPED", len(missing), strings.Join(shown, ", "), extra), false
+		return restoreCheck{
+			risk:    restoreUnsafe,
+			message: fmt.Sprintf("⚠ RESTORE PREFLIGHT: %d savepoint operators missing from this jar (%s%s) — that state would be DROPPED", len(missing), strings.Join(shown, ", "), extra),
+		}
 	}
-	return "", true
+	return restoreCheck{risk: restoreSafe}
 }
 
 // run submits the jar, optionally from a savepoint.
-func (j *Jars) run(jarID, savepoint string) tea.Cmd {
+func (j *Jars) run(jarID, savepoint string, allowNonRestoredState bool) tea.Cmd {
 	cl := j.deps.CL
 	return func() tea.Msg {
-		jid, err := cl.RunJar(jarID, savepoint)
+		jid, err := cl.RunJar(jarID, client.RunJarOptions{
+			SavepointPath:         savepoint,
+			AllowNonRestoredState: allowNonRestoredState,
+		})
 		if err != nil {
 			return jarActionMsg{err: err}
 		}

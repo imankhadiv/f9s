@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/imankhadiv/f9s/internal/config"
@@ -51,6 +52,77 @@ var fixtures = map[string]string{
 	"/jobs/a3f21c00000000000000000000000000/vertices/v1/backpressure": `{
 		"status":"ok","backpressureLevel":"low","end-timestamp":1757509600000,
 		"subtasks":[{"subtask":0,"backpressureLevel":"low","ratio":0.1}]}`,
+}
+
+func TestJarPlanUsesPostWithJSONBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/jars/job.jar/plan" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Fatalf("body = %#v, want empty object", body)
+		}
+		_, _ = w.Write([]byte(`{"plan":{"nodes":[{"id":"source"}]}}`))
+	}))
+	defer srv.Close()
+
+	plan, err := New(config.Context{URL: srv.URL}).JarPlan("job.jar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Nodes) != 1 || plan.Nodes[0].ID != "source" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestRunJarRestoreOptions(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/jars/job.jar/run" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, body)
+		_, _ = w.Write([]byte(`{"jobid":"new-job"}`))
+	}))
+	defer srv.Close()
+	cl := New(config.Context{URL: srv.URL})
+
+	cases := []struct {
+		name string
+		opts RunJarOptions
+		want map[string]any
+	}{
+		{name: "fresh run", want: map[string]any{}},
+		{name: "strict restore", opts: RunJarOptions{SavepointPath: "s3://state/sp"}, want: map[string]any{
+			"savepointPath": "s3://state/sp", "allowNonRestoredState": false,
+		}},
+		{name: "explicit unsafe restore", opts: RunJarOptions{SavepointPath: "s3://state/sp", AllowNonRestoredState: true}, want: map[string]any{
+			"savepointPath": "s3://state/sp", "allowNonRestoredState": true,
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			jid, err := cl.RunJar("job.jar", tc.opts)
+			if err != nil || jid != "new-job" {
+				t.Fatalf("jid=%q err=%v", jid, err)
+			}
+			got := bodies[len(bodies)-1]
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("body = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
 }
 
 func testClient(t *testing.T) *Client {
