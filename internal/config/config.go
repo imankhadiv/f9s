@@ -50,6 +50,9 @@ type Context struct {
 	Auth          Auth              `yaml:"auth"`
 	TLSSkipVerify bool              `yaml:"tlsSkipVerify"`
 	Headers       map[string]string `yaml:"headers"`
+	// KubeContext is the kubeconfig context used by the FlinkDeployment view.
+	// Empty disables that view so kubectl never falls back to ambient state.
+	KubeContext string `yaml:"kubeContext"`
 	// SavepointDir prefills the target-directory prompt for savepoint and
 	// stop-with-savepoint. Empty uses the cluster's state.savepoints.dir.
 	SavepointDir string `yaml:"savepointDir"`

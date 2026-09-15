@@ -168,6 +168,7 @@ currentContext: local
 contexts:
   local:
     url: http://localhost:8081
+    # kubeContext: docker-desktop                # required for the FlinkDeployments view (K)
     # savepointDir: s3://my-bucket/savepoints   # prefills the savepoint prompt
     # sqlGateway: http://localhost:8083         # enables :sql
     # historyServer: http://localhost:8082      # enables :history
@@ -179,6 +180,7 @@ contexts:
     #   watch: true                             # auto-investigate alerts
   # prod:
   #   url: https://flink.prod.example.com
+  #   kubeContext: prod-us                       # never falls back to kubectl's current context
   #   auth: { type: bearer, tokenEnv: FLINK_PROD_TOKEN }
 `
 

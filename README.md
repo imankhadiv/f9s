@@ -308,6 +308,7 @@ currentContext: prod-eu
 contexts:
   prod-eu:
     url: https://flink.prod.example.com
+    kubeContext: prod-eu-admin                  # required for the FlinkDeployments view (K)
     auth: { type: bearer, tokenEnv: FLINK_TOKEN }
     savepointDir: s3://my-bucket/savepoints   # prefills the savepoint prompt
     sqlGateway: https://flink-gw.prod.example.com   # enables the SQL console (Q)
@@ -318,7 +319,9 @@ contexts:
 
 Flink has no built-in auth; if your cluster sits behind a proxy, use
 `auth` (bearer/basic) or arbitrary `headers` per context. `tlsSkipVerify: true`
-is available for lab clusters.
+is available for lab clusters. The FlinkDeployment view requires an explicit
+`kubeContext` on the selected f9s context; f9s never inherits kubectl's current
+context.
 
 ## Roadmap
 

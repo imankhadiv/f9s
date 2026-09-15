@@ -1,6 +1,8 @@
 package views
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -23,6 +25,7 @@ type kubeMsg struct {
 type KubeDeploys struct {
 	deps    Deps
 	tbl     *uitable.Model
+	load    func(string) ([]kube.FlinkDeployment, error)
 	lastRun time.Time
 	loaded  bool
 	err     string
@@ -39,7 +42,7 @@ func NewKubeDeploys(deps Deps) *KubeDeploys {
 		{Title: "FLINK", Width: 6},
 		{Title: "ERROR", Width: 30},
 	})
-	return &KubeDeploys{deps: deps, tbl: tbl}
+	return &KubeDeploys{deps: deps, tbl: tbl, load: kube.Deployments}
 }
 
 func (k *KubeDeploys) Title() string   { return "flinkdeployments" }
@@ -50,10 +53,34 @@ func (k *KubeDeploys) Bindings() []key.Binding {
 
 func (k *KubeDeploys) Init() tea.Cmd {
 	k.lastRun = time.Now()
+	kubeContext, err := k.configuredKubeContext()
+	if err != nil {
+		return func() tea.Msg { return kubeMsg{err: err} }
+	}
+	load := k.load
 	return func() tea.Msg {
-		ds, err := kube.Deployments("")
+		ds, err := load(kubeContext)
 		return kubeMsg{deploys: ds, err: err}
 	}
+}
+
+func (k *KubeDeploys) configuredKubeContext() (string, error) {
+	if k.deps.Cfg != nil {
+		if ctx, ok := k.deps.Cfg.Contexts[k.deps.Ctx]; ok {
+			if kubeContext := strings.TrimSpace(ctx.KubeContext); kubeContext != "" {
+				return kubeContext, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("Kubernetes access is not configured for f9s context %q; set kubeContext in config.yaml", k.deps.Ctx)
+}
+
+func (k *KubeDeploys) contextLabel() string {
+	kubeContext, err := k.configuredKubeContext()
+	if err != nil {
+		return "context not configured"
+	}
+	return "context " + kubeContext
 }
 
 // Refresh throttles kubectl to once per kubeRefreshEvery.
@@ -121,17 +148,25 @@ func mapJM(s string) string {
 }
 
 func (k *KubeDeploys) View(width, height int) string {
-	return framed(width, height, "FlinkDeployments", k.tbl.Len(), "via kubectl · refreshes every 10s", func(iw, ih int) string {
+	kubeContext, ctxErr := k.configuredKubeContext()
+	footer := "via kubectl · " + k.contextLabel() + " · refreshes every 10s"
+	return framed(width, height, "FlinkDeployments", k.tbl.Len(), footer, func(iw, ih int) string {
 		out := ""
 		used := 0
 		if k.err != "" {
 			return out + errorBanner(k.err)
 		}
+		// Init reports this too, but its message lands a frame later — without
+		// this the first frame advertises "kubectl --context  get …", an empty
+		// context this view exists to refuse.
+		if ctxErr != nil {
+			return out + errorBanner(ctxErr.Error())
+		}
 		if !k.loaded {
-			return out + emptyState(" running kubectl get flinkdeployments -A …")
+			return out + emptyState(" running kubectl --context "+kubeContext+" get flinkdeployments -A …")
 		}
 		if k.tbl.Len() == 0 {
-			return out + emptyState(" No FlinkDeployments found on the current kube context.")
+			return out + emptyState(" No FlinkDeployments found on Kubernetes context "+kubeContext+".")
 		}
 		k.tbl.SetSize(iw, ih-used)
 		return out + k.tbl.View()
