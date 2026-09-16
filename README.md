@@ -212,7 +212,9 @@ other OSC 9-aware terminals).
 ## Trust & governance
 
 - `--read-only` (or `readOnly: true` per context): every mutating action
-  disabled, `[RO]` badge always visible — hand it to anyone on call.
+  disabled, `[RO]` badge always visible — hand it to anyone on call. The
+  restriction survives `--address`; the configured context's credentials
+  deliberately do not, since a typed address may be another cluster.
 - Every mutating action is audited to `~/.local/share/f9s/audit/<ctx>.jsonl`:
   who, when, what, against which target, with what result — TUI keys, MCP
   tools, and AI-approved proposals alike.
