@@ -13,22 +13,27 @@ The dashboard is fine at watching one job. Operating is a different sport:
 | Multi-cluster | ✗ one UI per JobManager | ✓ fleet view + context switch |
 | Keyboard-driven / over SSH | ✗ browser + port-forward | ✓ it's a terminal |
 | Backpressure + busy + watermarks | spread across tabs, click per vertex | ✓ one table, bottleneck auto-flagged |
+| Which subtask is actually blocked | ✗ vertex-level only | ✓ `e` per-subtask buffer fingerprint |
 | Checkpoint history | last **10** (`web.checkpoints.history`) | ✓ full history view |
 | Completed-job postmortems | separate History Server UI in a browser | ✓ `:history`, same keybindings |
 | SQL console | ✗ | ✓ `Q` via SQL Gateway |
 | Kubernetes operator awareness | ✗ | ✓ `K` FlinkDeployments |
-| AI diagnosis | ✗ | ✓ `a`, local-first, anonymized |
+| AI diagnosis & chat | ✗ | ✓ explain `a`, investigate `A`, ask `@` — local-first, anonymized |
+| AI-suggested actions | ✗ | ✓ proposed, never auto-run — you confirm inline |
+| Page-aware AI panel | ✗ | ✓ `A` — a side panel that always knows the page you're on |
 | Agent access | ✗ | ✓ `f9s mcp` |
 | Extensible | rebuild the Angular app | ✓ `plugins.yaml` |
 
 > "Built-in Flink UI is extremely useful when dealing with a single job —
 > but what if you have 10, 20 or 100 jobs?" — every Flink operator, eventually
 
-> ⚠️ **Status: early v0.1.** Working today: jobs / job detail / checkpoints /
-> exceptions views, plus **savepoint, stop-with-savepoint, and cancel** actions
-> (always behind a confirm prompt) and the **savepoint ledger** — f9s records
-> every savepoint path it takes, because Flink doesn't. TaskManager views and
-> multi-cluster fleet view are next — see the roadmap below.
+> ⚠️ **Status: pre-1.0.** The daily loop is solid: jobs, job detail and the
+> execution graph, checkpoints, exceptions, TaskManagers, the metrics explorer,
+> multi-cluster contexts, and the **savepoint ledger** — f9s records every
+> savepoint path it takes, because Flink doesn't. **Savepoint,
+> stop-with-savepoint, cancel and rescale** always confirm before they touch
+> the cluster, and `readOnly: true` disables them outright. Expect the UI to
+> keep moving while it's 0.x — the roadmap lives in the [README](../README.md).
 
 ## What the Web UI simply doesn't have
 

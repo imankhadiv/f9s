@@ -56,6 +56,18 @@ are designed. PRs that touch the UI are reviewed against this document.
 12. **Poll with tea.Tick; guard staleness.** Commands complete out of order:
     tag fetches with a generation counter and drop responses older than the
     last applied; pause polling for views not on top; per-view intervals.
+    **A generation counter is not enough on its own** — views are rebuilt,
+    not reused (`:`-commands reset the stack, and a context switch rebuilds
+    every view against a different cluster's client), and the replacement
+    starts its counter over. Any message carrying an async result back to a
+    view must also name the view that asked (`owner *T`), and Update must
+    drop messages whose owner is not itself. Messages only ever reach
+    `a.top()`, so a late reply otherwise lands on whatever now occupies that
+    slot: this has bitten twice, once showing another cluster's jobs and once
+    submitting a jar to the wrong cluster entirely. When moving a decision
+    out of a `tea.Cmd` closure into Update, check what the closure had
+    captured — captured state travels with the message, state read from the
+    receiver does not.
 13. **Assume hostile terminals.** Don't bypass the renderer (it already
     overwrites instead of clearing). Test in tmux, Windows Terminal, and over
     SSH; provide ASCII fallbacks for non-box-drawing glyphs; regression-test
@@ -75,12 +87,20 @@ are designed. PRs that touch the UI are reviewed against this document.
 
 ## Current gaps (queued in BACKLOG)
 
-1. `?` full-help overlay exists but `:` command mode does not — the two
-   features users most credit for k9s/lazygit learnability.
-2. No semantic token/skin layer yet — styles are applied directly from the
-   palette, blocking skins, NO_COLOR nuance, and ANSI-16 preference.
-3. No visible data-age indicator, no fetch generation guards, no table
-   virtualization for very large clusters.
+1. Keymaps are not user-configurable. Rule 15 wants one source of truth
+   feeding both the footer hints and the bindings before that ships.
+2. The footer advertises at most `maxFooterKeys` (9) of a view's own keys, so
+   dense views lean on `?` to be discoverable at all — rule 2's layer (a) is
+   lossy exactly where it is needed most.
+3. No ASCII fallback and no `NO_COLOR` handling: box-drawing, the `⚠`/`✓`/`⟳`
+   glyphs and the gradient wordmark are all assumed renderable (rule 13).
+4. No teatest coverage. The VHS tapes in `vhs/` are demos, not assertions, so
+   rule 13's "regression-test with teatest and VHS tapes" is half-built.
+
+Shipped since this list was written: `:` command mode with ambiguity
+reporting, the semantic token/skin layer (`internal/ui/styles`, `LoadSkin`),
+fetch generation guards and view-ownership tags (rule 12), and a data-age
+indicator in the header.
 
 ## Sources
 

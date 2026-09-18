@@ -31,6 +31,7 @@ The dashboard is fine at watching one job. Operating is a different sport:
 | Multi-cluster | ✗ one UI per JobManager | ✓ fleet view + context switch |
 | Keyboard-driven / over SSH | ✗ browser + port-forward | ✓ it's a terminal |
 | Backpressure + busy + watermarks | spread across tabs, click per vertex | ✓ one table, bottleneck auto-flagged |
+| Which subtask is actually blocked | ✗ vertex-level only | ✓ `e` per-subtask buffer fingerprint |
 | Checkpoint history | last **10** (`web.checkpoints.history`) | ✓ full history view |
 | Completed-job postmortems | separate History Server UI in a browser | ✓ `:history`, same keybindings |
 | SQL console | ✗ | ✓ `Q` via SQL Gateway |
@@ -44,11 +45,13 @@ The dashboard is fine at watching one job. Operating is a different sport:
 > "Built-in Flink UI is extremely useful when dealing with a single job —
 > but what if you have 10, 20 or 100 jobs?" — every Flink operator, eventually
 
-> ⚠️ **Status: early v0.1.** Working today: jobs / job detail / checkpoints /
-> exceptions views, plus **savepoint, stop-with-savepoint, and cancel** actions
-> (always behind a confirm prompt) and the **savepoint ledger** — f9s records
-> every savepoint path it takes, because Flink doesn't. TaskManager views and
-> multi-cluster fleet view are next — see the roadmap below.
+> ⚠️ **Status: pre-1.0.** The daily loop is solid: jobs, job detail and the
+> execution graph, checkpoints, exceptions, TaskManagers, the metrics explorer,
+> multi-cluster contexts, and the **savepoint ledger** — f9s records every
+> savepoint path it takes, because Flink doesn't. **Savepoint,
+> stop-with-savepoint, cancel and rescale** always confirm before they touch
+> the cluster, and `readOnly: true` disables them outright. Expect the UI to
+> keep moving while it's 0.x — see the roadmap below.
 
 ## Quickstart
 
@@ -82,20 +85,21 @@ retrying with backoff until the cluster answers.
 | `enter` | drill into selected job (vertices + backpressure + a pre-backpressure early warning from soft-bp/mailbox-latency) |
 | `l` | logs, k9s-style: JobManager log from the jobs view; a TaskManager's log from the `:tm` list — `F` lists rotated files, `o` tails stdout |
 | `L` | merged job logs: tails every TaskManager running the job's subtasks, timestamp-merged with per-TM tags — kubectl-logs for a Flink job |
-| `c` | checkpoints for selected job |
+| `c` | checkpoints for selected job — `enter` on a checkpoint opens the per-subtask straggler breakdown with a blocked-share heatmap, and a failed run carries its reason in a banner instead of a bare `FAILED` |
 | `x` | exceptions for selected job |
 | `s` | trigger savepoint (prompts for target dir) |
 | `S` | stop with savepoint |
 | `ctrl-x` | cancel job |
 | `p` | savepoint ledger (`enter` restore cmd, `y` copy path) |
 | `o` | cycle sort: triage / name / uptime / status |
-| `t` | TaskManagers (enter → heap/GC detail, `l` log tail, `P` flame graph, `T` thread dump) |
-| `m` | metrics explorer: fuzzy-search every cluster metric (`tm:`/`job:`/`v:` prefixes jump scope), inspect live, `s` per-subtask bars, `ctrl-p` pins a tile (persisted per context), `a` asks AI about the value |
+| `t` | TaskManagers (enter → heap/GC detail, `l` log tail, `P` flame graph, `T` thread dump) (in the jobs view) |
+| `m` | metrics explorer: fuzzy-search every cluster metric (`tm:`/`job:`/`v:` prefixes jump scope), inspect live, `s` per-subtask bars that refresh with the value, `ctrl-p` pins a tile (persisted per context), `a` asks AI about the value. Metric names carrying Flink's reserved characters (`# $ & + / ; = ? @`) resolve correctly |
 | `C` | contexts fleet view (enter → switch cluster) |
 | `a` | AI explain: diagnose the selected job (see below) |
 | `A` | agentic investigate: the model drills deeper with read-only tools, every call shown |
 | `@` | ask AI: free-form chat about the job (or `:ask` cluster-wide) — starter questions, and it can propose actions you approve inline |
 | `b` | backpressure history sparklines (in job detail) |
+| `e` | the backpressure edge: a vertex's per-subtask buffer fingerprint — which subtasks are actually blocked, not just which vertex looks busy (in job detail) |
 | `g` | execution graph as Flink-UI-style boxes — per-operator parallelism, backpressure/busy/skew gauges, health-colored; `←→` selects a box, `R` rescales it (FLIP-291), `shift+←→` pans (in job detail) |
 | `t` | per-vertex subtask table: attempts, TaskManager, lifecycle durations; enter shows retained attempt history (in job detail) |
 | `O` | config resolution: the cluster→job→operator override chain per setting, with the winning layer marked (in job detail) |
@@ -104,12 +108,12 @@ retrying with backoff until the cluster answers.
 | `R` | rescale vertex live (FLIP-291, needs adaptive scheduler) |
 | `d` | skew drill-down: per-subtask distribution + cause + fix |
 | `Q` | SQL Gateway console (needs `sqlGateway:` in the context) |
-| `K` | FlinkDeployments (Flink Kubernetes Operator, via kubectl) |
+| `K` | FlinkDeployments (Flink Kubernetes Operator, via kubectl; needs `kubeContext:` in the context) |
 | `/` | filter jobs |
-| `:` | command mode (`:jobs` `:tm` `:sp` `:jars` `:timeline` `:pulse` `:doctor` `:ctx` `:k8s` `:sql` `:log` `:alerts`) |
+| `:` | command mode — `:jobs` `:cluster` `:tms` `:savepoints` `:contexts` `:k8s` `:sql` `:log` `:alerts` `:investigations` `:config` `:jars` `:jmlog` `:timeline` `:doctor` `:ask` `:pulse` `:waste` `:history` `:quit`, plus short aliases (`:j` `:sp` `:tm` `:ctx`). A prefix matching several destinations names them rather than guessing: `:c` answers `cluster · contexts · log · config · ask · waste` instead of silently picking one |
 | `:timeline` | the merged incident feed — alerts, actions, AI investigations, chronologically; `E` exports a markdown postmortem draft |
-| `!` | alerts (sentinel: backpressure, data skew, checkpoint-failure streaks, restart loops — hysteresis-gated) |
-| `:jars` | upload & submit jars; `S` resubmits from the newest ledger savepoint — the stop→fix→resume loop without leaving the terminal |
+| `!` | alerts (sentinel: backpressure, data skew, checkpoint-failure streaks, restart loops — hysteresis-gated). Telemetry f9s couldn't read counts as unknown, not healthy, so a monitoring gap pauses the hysteresis instead of quietly resolving your incident |
+| `:jars` | upload & submit jars; `S` restores from a savepoint (prefilled from the ledger) — the stop→fix→resume loop without leaving the terminal. Restores are **strict**: see below |
 | `r` | refresh now |
 | `esc` | back |
 | `?` | help |
@@ -215,6 +219,15 @@ other OSC 9-aware terminals).
   disabled, `[RO]` badge always visible — hand it to anyone on call. The
   restriction survives `--address`; the configured context's credentials
   deliberately do not, since a typed address may be another cluster.
+- `readOnly` is a ceiling, not a default: `f9s mcp --allow-writes` against a
+  read-only context refuses to start rather than quietly serving write tools,
+  so a command-line opt-in can't widen a policy the config set.
+- **Restores fail closed.** Restoring a jar from a savepoint sends
+  `allowNonRestoredState: false`, so Flink rejects a savepoint whose operators
+  don't map instead of silently dropping that state. f9s first compares the
+  jar's plan against the savepoint's originating job and names the operators
+  that would be lost; dropping them takes a second, deliberate confirmation of
+  the same jar and path.
 - Every mutating action is audited to `~/.local/share/f9s/audit/<ctx>.jsonl`:
   who, when, what, against which target, with what result — TUI keys, MCP
   tools, and AI-approved proposals alike.
@@ -240,6 +253,13 @@ Emitted metrics are f9s's own analysis, not raw Flink metrics:
 `f9s_vertex_busy_ms_per_sec`, `f9s_job_restarts`, `f9s_job_has_bottleneck`,
 `f9s_job_open_alerts`, plus `f9s_up` / `f9s_scrape_age_seconds`. NDJSON
 events carry a `schemaVersion` so integrations don't break on upgrades.
+
+`f9s_up` means the sweep, not the process: it is 1 only when the job list
+*and* every monitored job's detail were read, and 0 the moment either fails —
+so alert on it. `f9s_scrape_age_seconds` ages from the last complete sweep and
+is absent until the first one, rather than reporting a scrape that never
+happened. A job f9s couldn't read keeps its last-good gauges instead of
+vanishing from the scrape, and the rest of the cluster is still collected.
 
 ### Alert sinks
 
@@ -315,6 +335,7 @@ contexts:
     savepointDir: s3://my-bucket/savepoints   # prefills the savepoint prompt
     sqlGateway: https://flink-gw.prod.example.com   # enables the SQL console (Q)
     historyServer: https://flink-hs.prod.example.com # enables :history postmortems
+    # readOnly: true                          # view-only: disables every mutating action
   local:
     url: http://localhost:8081
 ```
