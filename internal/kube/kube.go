@@ -76,15 +76,23 @@ func firstLine(s string) string {
 	return s
 }
 
-// Deployments lists FlinkDeployments across all namespaces via kubectl.
-// kubeContext optionally selects a kubeconfig context.
+func deploymentArgs(kubeContext string) ([]string, error) {
+	kubeContext = strings.TrimSpace(kubeContext)
+	if kubeContext == "" {
+		return nil, fmt.Errorf("kubeContext is required; refusing to use kubectl's ambient context")
+	}
+	return []string{"--context", kubeContext, "get", "flinkdeployments", "-A", "-o", "json"}, nil
+}
+
+// Deployments lists FlinkDeployments across all namespaces via kubectl,
+// explicitly bound to kubeContext.
 func Deployments(kubeContext string) ([]FlinkDeployment, error) {
+	args, err := deploymentArgs(kubeContext)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		return nil, fmt.Errorf("kubectl not found in PATH — install it to see FlinkDeployments")
-	}
-	args := []string{"get", "flinkdeployments", "-A", "-o", "json"}
-	if kubeContext != "" {
-		args = append([]string{"--context", kubeContext}, args...)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

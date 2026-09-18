@@ -27,6 +27,7 @@ refreshRate: 5
 contexts:
   prod:
     url: https://flink.prod:8081
+    kubeContext: prod-us
     readOnly: true
     stateVolumeGB: 500
     auth:
@@ -48,7 +49,7 @@ contexts:
 
 	// Resolve: current, named, missing.
 	name, ctx, err := cfg.Resolve("")
-	if err != nil || name != "prod" || !ctx.ReadOnly || ctx.StateVolumeGB != 500 {
+	if err != nil || name != "prod" || !ctx.ReadOnly || ctx.StateVolumeGB != 500 || ctx.KubeContext != "prod-us" {
 		t.Fatalf("Resolve(current) wrong: %q %+v %v", name, ctx, err)
 	}
 	if _, c, err := cfg.Resolve("staging"); err != nil || c.URL != "http://flink.staging:8081" {
@@ -82,7 +83,7 @@ contexts:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.CurrentContext != "prod" || !reloaded.Contexts["prod"].ReadOnly {
+	if reloaded.CurrentContext != "prod" || !reloaded.Contexts["prod"].ReadOnly || reloaded.Contexts["prod"].KubeContext != "prod-us" {
 		t.Fatalf("round-trip lost data: %+v", reloaded)
 	}
 }

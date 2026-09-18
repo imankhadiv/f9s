@@ -76,12 +76,6 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	if *flagReadOnly {
-		for name, cctx := range cfg.Contexts {
-			cctx.ReadOnly = true
-			cfg.Contexts[name] = cctx
-		}
-	}
 	plugins, alertHook, err := plugin.Load(plugin.DefaultPath())
 	if err != nil {
 		fail(err)
@@ -89,13 +83,9 @@ func main() {
 	if err := styles.LoadSkin(styles.DefaultSkinPath()); err != nil {
 		fail(err)
 	}
-	name, cctx, err := cfg.Resolve(*flagContext)
+	name, cctx, err := resolveTarget(cfg, *flagContext, *flagAddress, *flagReadOnly)
 	if err != nil {
 		fail(err)
-	}
-	if *flagAddress != "" {
-		name, cctx = "flag", config.Context{URL: *flagAddress}
-		cfg.Contexts[name] = cctx
 	}
 	refresh := cfg.RefreshRate
 	if *flagRefresh > 0 {
@@ -115,6 +105,36 @@ func main() {
 	if _, err := prog.Run(); err != nil {
 		fail(err)
 	}
+}
+
+// resolveTarget picks the context f9s runs against, applying the --read-only
+// and --address overrides. It registers the result in cfg under the returned
+// name, because the read-only guard and the views look the policy up by name
+// rather than carrying this value around.
+func resolveTarget(cfg *config.Config, flagContext, flagAddress string, flagReadOnly bool) (string, config.Context, error) {
+	if flagReadOnly {
+		for name, cctx := range cfg.Contexts {
+			cctx.ReadOnly = true
+			cfg.Contexts[name] = cctx
+		}
+	}
+	name, cctx, err := cfg.Resolve(flagContext)
+	if err != nil {
+		return "", config.Context{}, err
+	}
+	if flagAddress != "" {
+		// A bare address can be an entirely different cluster, so credentials
+		// — auth, headers, tlsSkipVerify — are deliberately not carried onto
+		// it: they belong to the configured host. Restrictions are carried,
+		// because dropping readOnly here would let --address defeat the very
+		// policy that exists to prevent mutation.
+		name, cctx = "flag", config.Context{
+			URL:      flagAddress,
+			ReadOnly: cctx.ReadOnly || flagReadOnly,
+		}
+		cfg.Contexts[name] = cctx
+	}
+	return name, cctx, nil
 }
 
 // snapshot prints the jobs table once; useful for scripting and smoke tests.
@@ -168,6 +188,7 @@ currentContext: local
 contexts:
   local:
     url: http://localhost:8081
+    # kubeContext: docker-desktop                # required for the FlinkDeployments view (K)
     # savepointDir: s3://my-bucket/savepoints   # prefills the savepoint prompt
     # sqlGateway: http://localhost:8083         # enables :sql
     # historyServer: http://localhost:8082      # enables :history
@@ -179,6 +200,7 @@ contexts:
     #   watch: true                             # auto-investigate alerts
   # prod:
   #   url: https://flink.prod.example.com
+  #   kubeContext: prod-us                       # never falls back to kubectl's current context
   #   auth: { type: bearer, tokenEnv: FLINK_PROD_TOKEN }
 `
 

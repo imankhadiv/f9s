@@ -212,7 +212,9 @@ other OSC 9-aware terminals).
 ## Trust & governance
 
 - `--read-only` (or `readOnly: true` per context): every mutating action
-  disabled, `[RO]` badge always visible — hand it to anyone on call.
+  disabled, `[RO]` badge always visible — hand it to anyone on call. The
+  restriction survives `--address`; the configured context's credentials
+  deliberately do not, since a typed address may be another cluster.
 - Every mutating action is audited to `~/.local/share/f9s/audit/<ctx>.jsonl`:
   who, when, what, against which target, with what result — TUI keys, MCP
   tools, and AI-approved proposals alike.
@@ -308,6 +310,7 @@ currentContext: prod-eu
 contexts:
   prod-eu:
     url: https://flink.prod.example.com
+    kubeContext: prod-eu-admin                  # required for the FlinkDeployments view (K)
     auth: { type: bearer, tokenEnv: FLINK_TOKEN }
     savepointDir: s3://my-bucket/savepoints   # prefills the savepoint prompt
     sqlGateway: https://flink-gw.prod.example.com   # enables the SQL console (Q)
@@ -318,7 +321,9 @@ contexts:
 
 Flink has no built-in auth; if your cluster sits behind a proxy, use
 `auth` (bearer/basic) or arbitrary `headers` per context. `tlsSkipVerify: true`
-is available for lab clusters.
+is available for lab clusters. The FlinkDeployment view requires an explicit
+`kubeContext` on the selected f9s context; f9s never inherits kubectl's current
+context.
 
 ## Roadmap
 

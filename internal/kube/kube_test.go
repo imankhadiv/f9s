@@ -1,6 +1,10 @@
 package kube
 
-import "testing"
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
 
 // fixture mirrors a real Flink Kubernetes Operator FlinkDeployment list.
 const fixture = `{
@@ -48,5 +52,22 @@ func TestParseEmpty(t *testing.T) {
 	ds, err := Parse([]byte(`{"items": []}`))
 	if err != nil || len(ds) != 0 {
 		t.Fatalf("empty list: %v %v", ds, err)
+	}
+}
+
+func TestDeploymentArgsBindConfiguredContext(t *testing.T) {
+	got, err := deploymentArgs("prod-us")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--context", "prod-us", "get", "flinkdeployments", "-A", "-o", "json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deployment args = %#v, want %#v", got, want)
+	}
+}
+
+func TestDeploymentArgsRejectEmptyContext(t *testing.T) {
+	if _, err := deploymentArgs("  "); err == nil || !strings.Contains(err.Error(), "kubeContext") {
+		t.Fatalf("empty context error = %v", err)
 	}
 }

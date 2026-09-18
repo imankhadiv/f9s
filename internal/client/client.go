@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -277,22 +278,29 @@ func (c *Client) UploadJar(localPath string) (string, error) {
 	return filepath.Base(v.Filename), nil
 }
 
-// JarPlan is GET /jars/:id/plan — the topology the jar would deploy.
+// JarPlan is POST /jars/:id/plan — the topology the jar would deploy.
 func (c *Client) JarPlan(jarID string) (model.Plan, error) {
 	var v struct {
 		Plan model.Plan `json:"plan"`
 	}
-	err := c.get("/jars/"+jarID+"/plan", &v)
+	err := c.send(http.MethodPost, "/jars/"+jarID+"/plan", map[string]any{}, &v)
 	return v.Plan, err
+}
+
+// RunJarOptions controls a jar submission. AllowNonRestoredState is unsafe:
+// Flink may discard savepoint state that cannot be mapped to the submitted job.
+type RunJarOptions struct {
+	SavepointPath         string
+	AllowNonRestoredState bool
 }
 
 // RunJar is POST /jars/:id/run — submits a job, optionally restoring from a
 // savepoint. Returns the new job id.
-func (c *Client) RunJar(jarID, savepointPath string) (string, error) {
+func (c *Client) RunJar(jarID string, opts RunJarOptions) (string, error) {
 	body := map[string]any{}
-	if savepointPath != "" {
-		body["savepointPath"] = savepointPath
-		body["allowNonRestoredState"] = true
+	if opts.SavepointPath != "" {
+		body["savepointPath"] = opts.SavepointPath
+		body["allowNonRestoredState"] = opts.AllowNonRestoredState
 	}
 	var v struct {
 		JobID string `json:"jobid"`
@@ -407,10 +415,29 @@ func (c *Client) Exceptions(jid string) (model.Exceptions, error) {
 }
 
 // JobMetrics is GET /jobs/:jid/metrics?get=..., e.g. numRestarts.
-func (c *Client) JobMetrics(jid string, keys string) ([]model.Metric, error) {
+func (c *Client) JobMetrics(jid string, keys ...string) ([]model.Metric, error) {
 	var v []model.Metric
-	err := c.get("/jobs/"+jid+"/metrics?get="+keys, &v)
+	err := c.getMetrics("/jobs/"+jid+"/metrics", keys, &v)
 	return v, err
+}
+
+// metricQuery builds the ?get= selector for Flink's metric endpoints. Flink
+// documents that metric names may contain reserved characters (# $ & + / ; = ?
+// @), so each id is escaped on its own — but the commas between them are left
+// literal. They are the separator Flink splits the decoded value on, they are
+// legal unencoded in a query (RFC 3986 sub-delim), and that is what f9s has
+// always put on the wire; escaping them would change every multi-metric read
+// for no benefit.
+func metricQuery(keys []string) string {
+	escaped := make([]string, len(keys))
+	for i, k := range keys {
+		escaped[i] = url.QueryEscape(k)
+	}
+	return "?get=" + strings.Join(escaped, ",")
+}
+
+func (c *Client) getMetrics(path string, keys []string, out any) error {
+	return c.get(path+metricQuery(keys), out)
 }
 
 // getText fetches a plain-text endpoint (log files), capped to 2MiB.
@@ -744,7 +771,7 @@ func (c *Client) subtaskMetric(jid, vid, metric string, parallelism int) ([]floa
 		keys[i] = fmt.Sprintf("%d.%s", i, metric)
 	}
 	var ms []model.Metric
-	err := c.get("/jobs/"+jid+"/vertices/"+vid+"/metrics?get="+strings.Join(keys, ","), &ms)
+	err := c.getMetrics("/jobs/"+jid+"/vertices/"+vid+"/metrics", keys, &ms)
 	if err != nil {
 		return nil, err
 	}
@@ -785,7 +812,7 @@ func (c *Client) VertexSubtaskRecords(jid, vid string, parallelism int) ([]float
 			fmt.Sprintf("%d.numRecordsOutPerSecond", i))
 	}
 	var ms []model.Metric
-	err := c.get("/jobs/"+jid+"/vertices/"+vid+"/metrics?get="+strings.Join(keys, ","), &ms)
+	err := c.getMetrics("/jobs/"+jid+"/vertices/"+vid+"/metrics", keys, &ms)
 	if err != nil {
 		return nil, err
 	}
@@ -976,7 +1003,7 @@ func (c *Client) ListMetricNames(path string) ([]string, error) {
 // endpoint.
 func (c *Client) MetricValues(path string, keys []string) ([]model.Metric, error) {
 	var ms []model.Metric
-	err := c.get(path+"?get="+strings.Join(keys, ","), &ms)
+	err := c.getMetrics(path, keys, &ms)
 	return ms, err
 }
 
@@ -1132,7 +1159,7 @@ func (c *Client) SetVertexParallelism(jid, vid string, parallelism int) error {
 // subtasks, or -1 when the cluster doesn't report it (pre-1.13 Flink).
 func (c *Client) VertexBusy(jid, vid string) (float64, error) {
 	var v []model.AggregatedMetric
-	err := c.get("/jobs/"+jid+"/vertices/"+vid+"/subtasks/metrics?get=busyTimeMsPerSecond", &v)
+	err := c.getMetrics("/jobs/"+jid+"/vertices/"+vid+"/subtasks/metrics", []string{"busyTimeMsPerSecond"}, &v)
 	if err != nil {
 		return -1, err
 	}

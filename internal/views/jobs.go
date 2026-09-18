@@ -24,9 +24,10 @@ import (
 )
 
 type jobsMsg struct {
-	gen  int
-	jobs []model.JobOverview
-	err  error
+	owner *Jobs
+	gen   int
+	jobs  []model.JobOverview
+	err   error
 }
 
 // jobExtra is the slow-path per-job data (checkpoint health, restarts)
@@ -39,6 +40,7 @@ type jobExtra struct {
 }
 
 type jobExtraMsg struct {
+	owner *Jobs
 	jid   string
 	extra jobExtra
 }
@@ -158,7 +160,7 @@ func (j *Jobs) Refresh() tea.Cmd {
 	gen := j.gen
 	return func() tea.Msg {
 		jobs, err := cl.Jobs()
-		return jobsMsg{gen: gen, jobs: jobs, err: err}
+		return jobsMsg{owner: j, gen: gen, jobs: jobs, err: err}
 	}
 }
 
@@ -192,7 +194,7 @@ func (j *Jobs) extraCmds() tea.Cmd {
 					}
 				}
 			}
-			return jobExtraMsg{jid: jid, extra: extra}
+			return jobExtraMsg{owner: j, jid: jid, extra: extra}
 		})
 	}
 	return tea.Batch(cmds...)
@@ -208,6 +210,9 @@ func (j *Jobs) selected() (model.JobOverview, bool) {
 func (j *Jobs) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case jobsMsg:
+		if msg.owner != j {
+			return j, nil // result belongs to a view replaced by navigation/context switch
+		}
 		if msg.gen < j.applied {
 			return j, nil // out-of-order response from an older tick
 		}
@@ -231,6 +236,9 @@ func (j *Jobs) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return j, j.extraCmds()
 
 	case jobExtraMsg:
+		if msg.owner != j {
+			return j, nil
+		}
 		e := msg.extra
 		e.fetchedAt = time.Now()
 		j.extras[msg.jid] = e

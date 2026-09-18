@@ -56,6 +56,25 @@ type jobGauge struct {
 	openAlerts int
 }
 
+type vertexObservation struct {
+	id, name   string
+	gauge      vertexGauge
+	sample     analyze.VertexSample
+	bpKnown    bool
+	skewKnown  bool
+	skew       int
+	skewValues []float64
+}
+
+type jobObservation struct {
+	jid, name       string
+	gauge           jobGauge
+	restartsKnown   bool
+	checkpointBad   bool
+	checkpointKnown bool
+	vertices        []vertexObservation
+}
+
 // Collector polls a cluster headlessly and holds the latest verdicts.
 type Collector struct {
 	cl      *client.Client
@@ -65,11 +84,13 @@ type Collector struct {
 	emit    func(Event)
 	sinks   []sink.Sink
 
-	mu      sync.RWMutex
-	vgauge  map[string]vertexGauge // jid|vid -> gauge
-	jgauge  map[string]jobGauge    // jid -> gauge
-	lastRun map[string]int         // jid -> numRestarts
-	scrape  time.Time
+	mu          sync.RWMutex
+	vgauge      map[string]vertexGauge // jid|vid -> gauge
+	jgauge      map[string]jobGauge    // jid -> gauge
+	lastRun     map[string]int         // jid -> numRestarts
+	lastState   map[string]string      // jid -> state from last authoritative poll
+	up          bool
+	lastSuccess time.Time
 }
 
 // New builds a collector. emit is called for every event (nil = discard).
@@ -79,7 +100,8 @@ func New(cl *client.Client, ctxName string, period time.Duration, emit func(Even
 	}
 	return &Collector{
 		cl: cl, sent: sentinel.New(), ctxName: ctxName, period: period, emit: emit,
-		vgauge: map[string]vertexGauge{}, jgauge: map[string]jobGauge{}, lastRun: map[string]int{},
+		vgauge: map[string]vertexGauge{}, jgauge: map[string]jobGauge{},
+		lastRun: map[string]int{}, lastState: map[string]string{},
 	}
 }
 
@@ -118,95 +140,196 @@ func (c *Collector) event(e Event) {
 func (c *Collector) poll() {
 	jobs, err := c.cl.Jobs()
 	if err != nil {
+		c.markPollFailed()
 		c.event(Event{Type: "error", Message: err.Error()})
 		return
 	}
 	now := time.Now()
-	vg := map[string]vertexGauge{}
-	jg := map[string]jobGauge{}
+	observations := make([]jobObservation, 0, len(jobs))
 	live := map[string]bool{}
+	unknown := map[string]bool{}
+	complete := true
+
+	// Fetch all required job details before changing detector or gauge state.
+	// A partial sweep must not make missing jobs or vertices look healthy —
+	// but one unreadable job must not blind the rest of the cluster either,
+	// so it is skipped rather than aborting the sweep. Its detectors go
+	// unobserved and its last-good gauges are carried forward below.
 	for _, j := range jobs {
-		if j.State != "RUNNING" && j.State != "RESTARTING" && j.State != "FAILING" {
+		if !monitoredState(j.State) {
 			continue
 		}
 		live[j.JID] = true
 		job, err := c.cl.Job(j.JID)
 		if err != nil {
+			complete = false
+			unknown[j.JID] = true
+			c.event(Event{Type: "error", Job: j.Name, Message: fmt.Sprintf("job detail: %v", err)})
 			continue
 		}
-		jgObj := jobGauge{name: j.Name}
-		// restart-loop detection
+
+		obs := jobObservation{
+			jid:   j.JID,
+			name:  j.Name,
+			gauge: jobGauge{name: j.Name, restarts: -1},
+		}
 		if ms, err := c.cl.JobMetrics(j.JID, "numRestarts"); err == nil {
 			for _, m := range ms {
-				if m.ID == "numRestarts" {
-					fmt.Sscanf(m.Value, "%d", &jgObj.restarts)
+				if m.ID != "numRestarts" {
+					continue
 				}
+				if _, err := fmt.Sscanf(m.Value, "%d", &obs.gauge.restarts); err == nil {
+					obs.restartsKnown = true
+				}
+				break
 			}
 		}
-		last, seen := c.lastRun[j.JID]
-		c.lastRun[j.JID] = jgObj.restarts
-		restarting := seen && jgObj.restarts > last
-		if o, cl := c.sent.ObserveCondition(sentinel.Key{JID: j.JID, VID: "job"}, "restart-loop", j.Name, "job", restarting, now); o != nil {
-			c.event(Event{Type: "alert_open", Kind: "restart-loop", Job: j.Name})
-		} else if cl != nil {
-			c.event(Event{Type: "alert_close", Kind: "restart-loop", Job: j.Name})
+		if cp, err := c.cl.Checkpoints(j.JID); err == nil {
+			obs.checkpointKnown = true
+			obs.checkpointBad = len(cp.History) >= 2 &&
+				cp.History[0].Status == "FAILED" && cp.History[1].Status == "FAILED"
 		}
-		// checkpoint-failure streak
-		ckptBad := false
-		if cp, err := c.cl.Checkpoints(j.JID); err == nil && len(cp.History) >= 2 {
-			ckptBad = cp.History[0].Status == "FAILED" && cp.History[1].Status == "FAILED"
-		}
-		if o, cl := c.sent.ObserveCondition(sentinel.Key{JID: j.JID, VID: "job"}, "checkpoint", j.Name, "checkpointing", ckptBad, now); o != nil {
-			c.event(Event{Type: "alert_open", Kind: "checkpoint", Job: j.Name})
-		} else if cl != nil {
-			c.event(Event{Type: "alert_close", Kind: "checkpoint", Job: j.Name})
-		}
-		// per-vertex backpressure + skew
+
 		var samples []analyze.VertexSample
 		for _, v := range job.Vertices {
 			level := ""
 			if bp, err := c.cl.Backpressure(j.JID, v.ID); err == nil {
-				level = bp.Level()
+				level = strings.ToLower(bp.Level())
 			}
 			busy := -1.0
 			if b, err := c.cl.VertexBusy(j.JID, v.ID); err == nil {
 				busy = b
 			}
-			samples = append(samples, analyze.VertexSample{ID: v.ID, Name: v.Name, Level: level, BusyMsPerSec: busy, Parallelism: v.Parallelism})
-			k := sentinel.Key{JID: j.JID, VID: v.ID}
-			if o, cl := c.sent.Observe(k, j.Name, v.Name, sentinel.Sample{Time: now, Level: level, BusyMs: busy}); o != nil {
-				c.event(Event{Type: "alert_open", Kind: "backpressure", Job: j.Name, Vertex: v.Name, Peak: o.Peak})
-			} else if cl != nil {
-				c.event(Event{Type: "alert_close", Kind: "backpressure", Job: j.Name, Vertex: v.Name})
+			sample := analyze.VertexSample{
+				ID: v.ID, Name: v.Name, Level: level,
+				BusyMsPerSec: busy, Parallelism: v.Parallelism,
 			}
-			skew := -1
+			samples = append(samples, sample)
+
+			vo := vertexObservation{
+				id: v.ID, name: v.Name, sample: sample,
+				bpKnown: levelCode(level) >= 0,
+				skew:    -1,
+				gauge: vertexGauge{
+					job: j.Name, vertex: v.Name, bpLevel: levelCode(level),
+					busy: busy, skew: -1,
+				},
+			}
 			if v.Parallelism >= 2 {
 				if recs, err := c.cl.VertexSubtaskRecords(j.JID, v.ID, v.Parallelism); err == nil && len(recs) > 0 {
-					skew = analyze.SkewScore(recs)
-					if o, cl := c.sent.ObserveSkew(k, j.Name, v.Name, skew, recs, now); o != nil {
-						c.event(Event{Type: "alert_open", Kind: "skew", Job: j.Name, Vertex: v.Name, Peak: o.Peak})
-					} else if cl != nil {
-						c.event(Event{Type: "alert_close", Kind: "skew", Job: j.Name, Vertex: v.Name})
-					}
+					vo.skew = analyze.SkewScore(recs)
+					vo.skewKnown = true
+					vo.skewValues = recs
+					vo.gauge.skew = vo.skew
 				}
 			}
-			vg[j.JID+"|"+v.ID] = vertexGauge{job: j.Name, vertex: v.Name, bpLevel: levelCode(level), busy: busy, skew: skew}
+			obs.vertices = append(obs.vertices, vo)
 		}
-		jgObj.bottleneck = analyze.Bottleneck(samples) >= 0
-		jg[j.JID] = jgObj
+		obs.gauge.bottleneck = analyze.Bottleneck(samples) >= 0
+		observations = append(observations, obs)
 	}
+
+	vg := map[string]vertexGauge{}
+	jg := map[string]jobGauge{}
+	lastRun := map[string]int{}
+	for _, obs := range observations {
+		if last, ok := c.lastRun[obs.jid]; ok {
+			lastRun[obs.jid] = last
+		}
+		if obs.restartsKnown {
+			last, seen := c.lastRun[obs.jid]
+			lastRun[obs.jid] = obs.gauge.restarts
+			restarting := seen && obs.gauge.restarts > last
+			if o, cl := c.sent.ObserveCondition(sentinel.Key{JID: obs.jid, VID: "job"}, "restart-loop", obs.name, "job", restarting, now); o != nil {
+				c.event(Event{Type: "alert_open", Kind: "restart-loop", Job: obs.name})
+			} else if cl != nil {
+				c.event(Event{Type: "alert_close", Kind: "restart-loop", Job: obs.name})
+			}
+		}
+		if obs.checkpointKnown {
+			if o, cl := c.sent.ObserveCondition(sentinel.Key{JID: obs.jid, VID: "job"}, "checkpoint", obs.name, "checkpointing", obs.checkpointBad, now); o != nil {
+				c.event(Event{Type: "alert_open", Kind: "checkpoint", Job: obs.name})
+			} else if cl != nil {
+				c.event(Event{Type: "alert_close", Kind: "checkpoint", Job: obs.name})
+			}
+		}
+		for _, v := range obs.vertices {
+			k := sentinel.Key{JID: obs.jid, VID: v.id}
+			if v.bpKnown {
+				if o, cl := c.sent.Observe(k, obs.name, v.name, sentinel.Sample{Time: now, Level: v.sample.Level, BusyMs: v.sample.BusyMsPerSec}); o != nil {
+					c.event(Event{Type: "alert_open", Kind: "backpressure", Job: obs.name, Vertex: v.name, Peak: o.Peak})
+				} else if cl != nil {
+					c.event(Event{Type: "alert_close", Kind: "backpressure", Job: obs.name, Vertex: v.name})
+				}
+			}
+			if v.skewKnown {
+				if o, cl := c.sent.ObserveSkew(k, obs.name, v.name, v.skew, v.skewValues, now); o != nil {
+					c.event(Event{Type: "alert_open", Kind: "skew", Job: obs.name, Vertex: v.name, Peak: o.Peak})
+				} else if cl != nil {
+					c.event(Event{Type: "alert_close", Kind: "skew", Job: obs.name, Vertex: v.name})
+				}
+			}
+			vg[obs.jid+"|"+v.id] = v.gauge
+		}
+		jg[obs.jid] = obs.gauge
+	}
+	// A job we could not read this sweep keeps its last-good gauges and its
+	// restart baseline, so its series neither vanish nor reset. openAlerts is
+	// recounted below, so clear the carried-over tally first.
+	for jid := range unknown {
+		if g, ok := c.jgauge[jid]; ok {
+			g.openAlerts = 0
+			jg[jid] = g
+		}
+		if last, ok := c.lastRun[jid]; ok {
+			lastRun[jid] = last
+		}
+		for k, g := range c.vgauge {
+			if strings.HasPrefix(k, jid+"|") {
+				vg[k] = g
+			}
+		}
+	}
+
 	c.sent.Prune(live)
 	// count open alerts per job
 	for _, al := range c.sent.OpenAlerts() {
-		for jid, g := range jg {
-			if g.name == al.Job {
-				g.openAlerts++
-				jg[jid] = g
+		if g, ok := jg[al.Key.JID]; ok {
+			g.openAlerts++
+			jg[al.Key.JID] = g
+		}
+	}
+
+	states := make(map[string]string, len(jobs))
+	for _, j := range jobs {
+		states[j.JID] = j.State
+		if previous, seen := c.lastState[j.JID]; seen {
+			switch {
+			case previous != "FAILED" && j.State == "FAILED":
+				c.event(Event{Type: "alert_open", Kind: "job-failed", Job: j.Name})
+			case previous == "FAILED" && j.State != "FAILED":
+				c.event(Event{Type: "alert_close", Kind: "job-failed", Job: j.Name})
 			}
 		}
 	}
+
 	c.mu.Lock()
-	c.vgauge, c.jgauge, c.scrape = vg, jg, now
+	c.vgauge, c.jgauge = vg, jg
+	c.lastRun, c.lastState = lastRun, states
+	c.up = complete
+	if complete {
+		c.lastSuccess = now
+	}
+	c.mu.Unlock()
+}
+
+func monitoredState(state string) bool {
+	return state == "RUNNING" || state == "RESTARTING" || state == "FAILING"
+}
+
+func (c *Collector) markPollFailed() {
+	c.mu.Lock()
+	c.up = false
 	c.mu.Unlock()
 }
 
@@ -226,8 +349,11 @@ func levelCode(l string) int {
 func (c *Collector) WriteMetrics(w io.Writer) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	fmt.Fprintf(w, "# HELP f9s_up 1 when the collector last scraped the cluster successfully.\n# TYPE f9s_up gauge\nf9s_up{context=%q} 1\n", c.ctxName)
-	fmt.Fprintf(w, "# HELP f9s_scrape_age_seconds Seconds since the last successful poll.\n# TYPE f9s_scrape_age_seconds gauge\nf9s_scrape_age_seconds{context=%q} %.1f\n", c.ctxName, time.Since(c.scrape).Seconds())
+	fmt.Fprintf(w, "# HELP f9s_up 1 when the latest core cluster poll completed successfully.\n# TYPE f9s_up gauge\nf9s_up{context=%q} %d\n", c.ctxName, b2i(c.up))
+	fmt.Fprint(w, "# HELP f9s_scrape_age_seconds Seconds since the last successful core cluster poll.\n# TYPE f9s_scrape_age_seconds gauge\n")
+	if !c.lastSuccess.IsZero() {
+		fmt.Fprintf(w, "f9s_scrape_age_seconds{context=%q} %.1f\n", c.ctxName, time.Since(c.lastSuccess).Seconds())
+	}
 
 	fmt.Fprint(w, "# HELP f9s_vertex_skew_percent f9s's computed FLIP-418 skew score per vertex.\n# TYPE f9s_vertex_skew_percent gauge\n")
 	fmt.Fprint(w, "# HELP f9s_vertex_backpressure_level Backpressure level: 0 ok, 1 low, 2 high.\n# TYPE f9s_vertex_backpressure_level gauge\n")
