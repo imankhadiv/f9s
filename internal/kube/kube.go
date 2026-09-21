@@ -110,6 +110,8 @@ type Event struct {
 	Count   int
 	Last    time.Time
 	Object  string // involvedObject kind/name
+	// Namespace/Name of the involved object (the operator resource).
+	Namespace, Name string
 }
 
 // Pod is one JobManager / TaskManager pod of a deployment.
@@ -295,8 +297,9 @@ func ParseEvents(data []byte) ([]Event, error) {
 				LastObservedTime string `json:"lastObservedTime"`
 			} `json:"series"`
 			InvolvedObject struct {
-				Kind string `json:"kind"`
-				Name string `json:"name"`
+				Kind      string `json:"kind"`
+				Name      string `json:"name"`
+				Namespace string `json:"namespace"`
 			} `json:"involvedObject"`
 		} `json:"items"`
 	}
@@ -306,7 +309,8 @@ func ParseEvents(data []byte) ([]Event, error) {
 	out := make([]Event, 0, len(list.Items))
 	for _, it := range list.Items {
 		e := Event{Type: it.Type, Reason: it.Reason, Message: strings.TrimSpace(it.Message), Count: it.Count,
-			Object: it.InvolvedObject.Kind + "/" + it.InvolvedObject.Name}
+			Object:    it.InvolvedObject.Kind + "/" + it.InvolvedObject.Name,
+			Namespace: it.InvolvedObject.Namespace, Name: it.InvolvedObject.Name}
 		// events.k8s.io v1 moved the timestamps; take the first one present
 		for _, ts := range []string{it.LastTimestamp, it.EventTime, it.FirstTimestamp} {
 			if t, err := time.Parse(time.RFC3339, ts); err == nil {
@@ -597,4 +601,15 @@ func shortType(t string) string {
 		return t[i+1:]
 	}
 	return t
+}
+
+// EventsByReason lists events with one reason across all namespaces (e.g.
+// every autoscaler ScalingReport on the cluster), newest first, in a single
+// kubectl call.
+func EventsByReason(kubeContext, reason string) ([]Event, error) {
+	data, err := get(kubeContext, "events", "get", "events", "-A", "--field-selector", "reason="+reason, "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+	return ParseEvents(data)
 }

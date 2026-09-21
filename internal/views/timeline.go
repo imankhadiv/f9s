@@ -15,6 +15,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/imankhadiv/f9s/internal/analyze"
+	"github.com/imankhadiv/f9s/internal/kube"
 	"github.com/imankhadiv/f9s/internal/ledger"
 	"github.com/imankhadiv/f9s/internal/snapshot"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
@@ -35,10 +37,20 @@ type Timeline struct {
 	deps  Deps
 	vp    viewport.Model
 	ready bool
+
+	scaling     []analyze.ScalingEvent // operator autoscaler decisions (via kubectl)
+	scaleAt     time.Time
+	loadScaling func(kubeContext string) ([]kube.Event, error)
 }
 
+type timelineScalingMsg struct{ evs []analyze.ScalingEvent }
+
 // NewTimeline builds the merged feed view.
-func NewTimeline(deps Deps) *Timeline { return &Timeline{deps: deps} }
+func NewTimeline(deps Deps) *Timeline {
+	return &Timeline{deps: deps, loadScaling: func(kc string) ([]kube.Event, error) {
+		return kube.EventsByReason(kc, "ScalingReport")
+	}}
+}
 
 func (t *Timeline) Title() string   { return "timeline" }
 func (t *Timeline) Filtering() bool { return false }
@@ -50,8 +62,69 @@ func (t *Timeline) Bindings() []key.Binding {
 	}
 }
 
-func (t *Timeline) Init() tea.Cmd    { return nil }
-func (t *Timeline) Refresh() tea.Cmd { return nil } // built from in-memory + disk state each frame
+func (t *Timeline) Init() tea.Cmd { return t.scalingCmd() }
+
+// Refresh only re-reads the operator's scaling events (throttled); everything
+// else is built from in-memory + disk state each frame.
+func (t *Timeline) Refresh() tea.Cmd { return t.scalingCmd() }
+
+// scalingCmd fetches every ScalingReport on the cluster in one kubectl call
+// (when the context maps a kubeContext), at most every 30s.
+func (t *Timeline) scalingCmd() tea.Cmd {
+	kc, err := configuredKubeContext(t.deps)
+	if err != nil || time.Since(t.scaleAt) < autoRefreshEvery {
+		return nil
+	}
+	t.scaleAt = time.Now()
+	load := t.loadScaling
+	return func() tea.Msg {
+		es, err := load(kc)
+		if err != nil {
+			return nil
+		}
+		return timelineScalingMsg{evs: scalingEvents(es)}
+	}
+}
+
+// scalingEvents turns ScalingReport events into per-resource decisions.
+func scalingEvents(es []kube.Event) []analyze.ScalingEvent {
+	var out []analyze.ScalingEvent
+	for _, e := range es {
+		cs := analyze.ParseScalingReport(e.Message)
+		if len(cs) == 0 {
+			continue
+		}
+		out = append(out, analyze.ScalingEvent{At: e.Last, Resource: e.Namespace + "/" + e.Name, Changes: cs})
+	}
+	return out
+}
+
+// scalingTimeline renders autoscaler decisions and flapping verdicts.
+func scalingTimeline(evs []analyze.ScalingEvent) []timelineEvent {
+	var out []timelineEvent
+	for _, e := range evs {
+		parts := make([]string, len(e.Changes))
+		applied := true
+		for i, c := range e.Changes {
+			id := c.VID
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			parts[i] = fmt.Sprintf("%s %d→%d", id, c.From, c.To)
+			applied = applied && c.Applied
+		}
+		how := "applied"
+		if !applied {
+			how = "recommended only"
+		}
+		out = append(out, timelineEvent{e.At, "⤢", fmt.Sprintf("autoscaler · %s · %s (%s)", e.Resource, strings.Join(parts, ", "), how), styles.StateText()})
+	}
+	for _, f := range analyze.Flapping(evs, time.Hour) {
+		out = append(out, timelineEvent{f.At, "⇅", "AUTOSCALER FLAPPING: " + f.String() +
+			" within 1h — widen job.autoscaler.target.utilization.boundary or lengthen scale-down.interval", styles.ErrText()})
+	}
+	return out
+}
 
 // snapshotJournal converts the per-job config journal into change events
 // (skipping first-sightings — only actual changes tell an incident story).
@@ -110,6 +183,7 @@ func (t *Timeline) collect() []timelineEvent {
 			evs = append(evs, timelineEvent{r.StartedAt, "⏎", line, styles.Header()})
 		}
 	}
+	evs = append(evs, scalingTimeline(t.scaling)...)
 	evs = append(evs, blastEvents(evs)...)
 	sort.SliceStable(evs, func(a, b int) bool { return evs[a].at.Before(evs[b].at) })
 	return evs
@@ -178,6 +252,10 @@ func (t *Timeline) render(width int) string {
 }
 
 func (t *Timeline) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if sm, ok := msg.(timelineScalingMsg); ok {
+		t.scaling = sm.evs
+		return t, nil
+	}
 	if km, ok := msg.(tea.KeyMsg); ok {
 		if km.String() == "E" {
 			path, err := t.exportReport()
@@ -285,7 +363,7 @@ func reportsDir() string {
 }
 
 func (t *Timeline) View(width, height int) string {
-	return framed(width, height, "Timeline", -1, t.deps.Ctx+" · alerts · actions · investigations, merged", func(iw, ih int) string {
+	return framed(width, height, "Timeline", -1, t.deps.Ctx+" · alerts · actions · autoscaler · investigations, merged", func(iw, ih int) string {
 		if !t.ready {
 			t.vp = viewport.New(iw, ih)
 			t.ready = true
