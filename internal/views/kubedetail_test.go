@@ -110,7 +110,7 @@ func TestKubeDeploysListShowsTreeAndOpensDetail(t *testing.T) {
 }
 
 func TestKubeEventsAndPodsRender(t *testing.T) {
-	ev := NewKubeEvents(Deps{}, "kc", "a", "orders")
+	ev := NewKubeEvents(Deps{}, "kc", "a", "FlinkDeployment", "orders")
 	ev.Update(kubeEventsMsg{events: []kube.Event{{Type: "Warning", Reason: "SavepointError", Message: "timed\nout", Count: 2, Last: time.Now()}}})
 	if b := ev.View(120, 10); !strings.Contains(b, "SavepointError") || !strings.Contains(b, "timed out") {
 		t.Fatalf("events view:\n%s", b)

@@ -545,10 +545,18 @@ func SessionJobs(kubeContext string) ([]FlinkSessionJob, error) {
 	return ParseSessionJobs(data)
 }
 
-// Events lists the events on one operator resource, newest first.
-func Events(kubeContext, namespace, name string) ([]Event, error) {
-	data, err := get(kubeContext, "events", "get", "events", "-n", namespace,
-		"--field-selector", "involvedObject.name="+name, "-o", "json")
+// Events lists the events on one operator resource, newest first. kind
+// ("FlinkDeployment", "FlinkSessionJob"; "" = any) keeps out the events of
+// the operator's same-named JobManager Deployment and Service.
+func Events(kubeContext, namespace, kind, name string) ([]Event, error) {
+	if ValidName(namespace) != nil || ValidName(name) != nil {
+		return nil, fmt.Errorf("invalid resource %q/%q", namespace, name)
+	}
+	sel := "involvedObject.name=" + name
+	if kind != "" {
+		sel += ",involvedObject.kind=" + kind
+	}
+	data, err := get(kubeContext, "events", "get", "events", "-n", namespace, "--field-selector", sel, "-o", "json")
 	if err != nil {
 		return nil, err
 	}

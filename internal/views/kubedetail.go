@@ -191,7 +191,7 @@ func (d *KubeDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		ns, name := d.entry.namespace(), d.entry.name()
 		switch msg.String() {
 		case "e":
-			return d, push(NewKubeEvents(d.deps, d.kubeContext, ns, name))
+			return d, push(NewKubeEvents(d.deps, d.kubeContext, ns, d.entry.kindName(), name))
 		case "p":
 			if d.entry.deploy != nil {
 				return d, push(NewKubePods(d.deps, d.kubeContext, ns, name))
@@ -410,7 +410,8 @@ type KubeEvents struct {
 	deps        Deps
 	kubeContext string
 	ns, name    string
-	load        func(kubeContext, ns, name string) ([]kube.Event, error)
+	kind        string // FlinkDeployment / FlinkSessionJob
+	load        func(kubeContext, ns, kind, name string) ([]kube.Event, error)
 	tbl         *uitable.Model
 	events      []kube.Event
 	lastRun     time.Time
@@ -419,7 +420,7 @@ type KubeEvents struct {
 }
 
 // NewKubeEvents builds the events view for one resource.
-func NewKubeEvents(deps Deps, kubeContext, ns, name string) *KubeEvents {
+func NewKubeEvents(deps Deps, kubeContext, ns, kind, name string) *KubeEvents {
 	tbl := newTable([]uitable.Column{
 		{Title: "TYPE", Width: 8},
 		{Title: "REASON", Width: 22},
@@ -427,7 +428,7 @@ func NewKubeEvents(deps Deps, kubeContext, ns, name string) *KubeEvents {
 		{Title: "COUNT", Width: 5, Right: true},
 		{Title: "MESSAGE", Width: -1},
 	})
-	return &KubeEvents{deps: deps, kubeContext: kubeContext, ns: ns, name: name, load: kube.Events, tbl: tbl}
+	return &KubeEvents{deps: deps, kubeContext: kubeContext, ns: ns, kind: kind, name: name, load: kube.Events, tbl: tbl}
 }
 
 func (k *KubeEvents) Title() string   { return "events" }
@@ -438,9 +439,9 @@ func (k *KubeEvents) Bindings() []key.Binding {
 
 func (k *KubeEvents) Init() tea.Cmd {
 	k.lastRun = time.Now()
-	kc, ns, name, load := k.kubeContext, k.ns, k.name, k.load
+	kc, ns, kind, name, load := k.kubeContext, k.ns, k.kind, k.name, k.load
 	return func() tea.Msg {
-		es, err := load(kc, ns, name)
+		es, err := load(kc, ns, kind, name)
 		return kubeEventsMsg{events: es, err: err}
 	}
 }

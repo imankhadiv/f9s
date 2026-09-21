@@ -59,7 +59,7 @@ func TestViewsRenderSafelyAtAnySize(t *testing.T) {
 		"bphistory":      func() Model { return NewBPHistory(deps, "j1", "job", nil) },
 		"kubedeploys":    func() Model { return NewKubeDeploys(deps) },
 		"kubedetail":     func() Model { return NewKubeDetail(deps, "kc", richKubeEntry()) },
-		"kubeevents":     func() Model { return NewKubeEvents(deps, "kc", "ns", "name") },
+		"kubeevents":     func() Model { return NewKubeEvents(deps, "kc", "ns", "FlinkDeployment", "name") },
 		"kubepods":       func() Model { return NewKubePods(deps, "kc", "ns", "name") },
 		"fleet":          func() Model { return NewFleet(deps) },
 		"ckptcompare":    func() Model { return NewCheckpointCompare(deps, "j1", "job", []int64{5, 4, 3}) },

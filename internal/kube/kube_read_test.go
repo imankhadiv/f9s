@@ -151,7 +151,7 @@ func TestReadsBindExplicitContext(t *testing.T) {
 	if _, err := SessionJobs("prod"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Events("prod", "stream", "orders"); err != nil {
+	if _, err := Events("prod", "stream", "FlinkDeployment", "orders"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Pods("prod", "stream", "orders"); err != nil {
@@ -162,7 +162,7 @@ func TestReadsBindExplicitContext(t *testing.T) {
 			t.Fatalf("kubectl call not bound to the context: %v", args)
 		}
 	}
-	if !strings.Contains(strings.Join(got[1], " "), "--field-selector involvedObject.name=orders") {
+	if !strings.Contains(strings.Join(got[1], " "), "--field-selector involvedObject.name=orders,involvedObject.kind=FlinkDeployment") {
 		t.Fatalf("events not scoped to the resource: %v", got[1])
 	}
 	if !strings.Contains(strings.Join(got[2], " "), "-l app=orders") {

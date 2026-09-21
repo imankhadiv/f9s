@@ -92,7 +92,8 @@ const autoRefreshEvery = 30 * time.Second
 func NewDagView(deps Deps, jid, name string) *DagView {
 	return &DagView{deps: deps, jid: jid, name: name, stats: map[string]dagStat{},
 		auto:     dagAuto{target: analyze.DefaultTargetUtilization, boundary: analyze.DefaultUtilizationBound},
-		loadKube: kube.Deployments, loadEvents: kube.Events, now: time.Now}
+		loadKube: kube.Deployments, now: time.Now,
+		loadEvents: func(kc, ns, name string) ([]kube.Event, error) { return kube.Events(kc, ns, "FlinkDeployment", name) }}
 }
 
 func (d *DagView) Title() string   { return "dag(" + d.name + ")" }

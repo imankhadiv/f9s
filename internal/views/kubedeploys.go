@@ -37,6 +37,14 @@ func (e kubeEntry) namespace() string {
 	return e.session.Namespace
 }
 
+// kindName is the resource's Kubernetes kind (for event field selectors).
+func (e kubeEntry) kindName() string {
+	if e.deploy != nil {
+		return "FlinkDeployment"
+	}
+	return "FlinkSessionJob"
+}
+
 func (e kubeEntry) name() string {
 	if e.deploy != nil {
 		return e.deploy.Name
@@ -259,7 +267,7 @@ func (k *KubeDeploys) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			e := k.entries[cur]
 			if msg.String() == "e" {
-				return k, push(NewKubeEvents(k.deps, kubeContext, e.namespace(), e.name()))
+				return k, push(NewKubeEvents(k.deps, kubeContext, e.namespace(), e.kindName(), e.name()))
 			}
 			return k, push(NewKubeDetail(k.deps, kubeContext, e))
 		}
