@@ -555,3 +555,46 @@ func Pods(kubeContext, namespace, name string) ([]Pod, error) {
 	}
 	return ParsePods(data)
 }
+
+// YAML returns the resource as `kubectl get <kind> <name> -n <ns> -o yaml`.
+func YAML(kubeContext, kind, namespace, name string) (string, error) {
+	data, err := get(kubeContext, kind, "get", kind, name, "-n", namespace, "-o", "yaml")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// ErrorLines turns the operator's status.error into readable lines. The
+// operator stores a JSON blob ({type, message, throwableList[]}); anything
+// else is returned as-is, line by line.
+func ErrorLines(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var e struct {
+		Type          string `json:"type"`
+		Message       string `json:"message"`
+		ThrowableList []struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"throwableList"`
+	}
+	if json.Unmarshal([]byte(raw), &e) != nil || (e.Type == "" && e.Message == "") {
+		return strings.Split(raw, "\n")
+	}
+	out := []string{shortType(e.Type) + ": " + strings.TrimSpace(e.Message)}
+	for _, t := range e.ThrowableList {
+		out = append(out, "caused by "+shortType(t.Type)+": "+strings.TrimSpace(t.Message))
+	}
+	return out
+}
+
+// shortType drops the package from a Java class name.
+func shortType(t string) string {
+	if i := strings.LastIndexByte(t, '.'); i >= 0 {
+		return t[i+1:]
+	}
+	return t
+}

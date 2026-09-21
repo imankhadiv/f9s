@@ -13,6 +13,7 @@ func TestKubeDeploysUsesContextMappedToSelectedF9sContext(t *testing.T) {
 		"prod": {KubeContext: "prod-us"},
 	}}
 	v := NewKubeDeploys(Deps{Ctx: "prod", Cfg: cfg})
+	v.loadSession = func(string) ([]kube.FlinkSessionJob, error) { return nil, nil }
 	calledWith := ""
 	v.load = func(kubeContext string) ([]kube.FlinkDeployment, error) {
 		calledWith = kubeContext
@@ -36,6 +37,7 @@ func TestKubeDeploysMissingMappingDoesNotRunKubectl(t *testing.T) {
 		"prod": {},
 	}}
 	v := NewKubeDeploys(Deps{Ctx: "prod", Cfg: cfg})
+	v.loadSession = func(string) ([]kube.FlinkSessionJob, error) { return nil, nil }
 	called := false
 	v.load = func(string) ([]kube.FlinkDeployment, error) {
 		called = true
@@ -57,6 +59,7 @@ func TestKubeDeploysMissingMappingDoesNotRunKubectl(t *testing.T) {
 func TestKubeDeploysNeverAdvertisesAnEmptyKubeContext(t *testing.T) {
 	cfg := &config.Config{Contexts: map[string]config.Context{"prod": {}}}
 	v := NewKubeDeploys(Deps{Ctx: "prod", Cfg: cfg})
+	v.loadSession = func(string) ([]kube.FlinkSessionJob, error) { return nil, nil }
 	v.load = func(string) ([]kube.FlinkDeployment, error) { return nil, nil }
 
 	_ = v.Init() // returned command deliberately not applied

@@ -185,3 +185,18 @@ func TestMissingCRDErrorIsExplained(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestErrorLines(t *testing.T) {
+	got := ErrorLines(`{"type":"org.apache.flink.kubernetes.operator.exception.ReconciliationException","message":"Could not upgrade",` +
+		`"throwableList":[{"type":"java.util.concurrent.TimeoutException","message":"savepoint timed out"}]}`)
+	want := []string{"ReconciliationException: Could not upgrade", "caused by TimeoutException: savepoint timed out"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ErrorLines = %q", got)
+	}
+	if got := ErrorLines("plain\ntext"); len(got) != 2 {
+		t.Fatalf("plain error = %q", got)
+	}
+	if ErrorLines("  ") != nil {
+		t.Fatal("empty error must be nil")
+	}
+}
