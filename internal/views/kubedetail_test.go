@@ -174,3 +174,13 @@ func TestSessionClusterHasNoJobActions(t *testing.T) {
 		}
 	}
 }
+
+func TestAutoscalerModeKeyPrecedence(t *testing.T) {
+	conf := map[string]string{
+		"kubernetes.operator.job.autoscaler.enabled": "true",  // legacy says on
+		"job.autoscaler.enabled":                     "false", // current key wins
+	}
+	if got := AutoscalerMode(conf); got != "off" {
+		t.Fatalf("current key must win over the legacy fallback, got %s", got)
+	}
+}

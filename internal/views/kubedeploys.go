@@ -174,18 +174,24 @@ func reconcileCell(state string, drifting, known bool) uitable.Cell {
 
 // AutoscalerMode reads the operator autoscaler switches from the CR's
 // flinkConfiguration: "on" (scaling applied), "advisory" (metrics collected
-// and recommendations computed, scaling.enabled=false), or "off".
+// and recommendations computed, scaling.enabled=false), or "off". Keys
+// resolve like Flink's config: job.autoscaler.* wins, the legacy
+// kubernetes.operator.job.autoscaler.* prefix is only a fallback.
 func AutoscalerMode(conf map[string]string) string {
-	if !strings.EqualFold(conf["job.autoscaler.enabled"], "true") &&
-		!strings.EqualFold(conf["kubernetes.operator.job.autoscaler.enabled"], "true") {
+	if !strings.EqualFold(autoscalerFlag(conf, "enabled"), "true") {
 		return "off"
 	}
-	for _, k := range []string{"job.autoscaler.scaling.enabled", "kubernetes.operator.job.autoscaler.scaling.enabled"} {
-		if strings.EqualFold(conf[k], "false") {
-			return "advisory"
-		}
+	if strings.EqualFold(autoscalerFlag(conf, "scaling.enabled"), "false") {
+		return "advisory"
 	}
 	return "on"
+}
+
+func autoscalerFlag(conf map[string]string, suffix string) string {
+	if v, ok := conf["job.autoscaler."+suffix]; ok {
+		return strings.TrimSpace(v)
+	}
+	return strings.TrimSpace(conf["kubernetes.operator.job.autoscaler."+suffix])
 }
 
 func autoCell(conf map[string]string, session bool) uitable.Cell {

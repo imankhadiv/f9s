@@ -173,7 +173,12 @@ func (r *Registry) kubeTools() []Tool {
 				if v != "true" && v != "false" {
 					return nil, "", fmt.Errorf(`enabled must be "true" or "false", got %q`, args["enabled"])
 				}
-				return kube.ConfigPatch(map[string]*string{"job.autoscaler.enabled": &v}), "autoscaler enabled=" + v, nil
+				// write the current key and drop the legacy one, so no stale
+				// fallback value can contradict what was just set
+				return kube.ConfigPatch(map[string]*string{
+					"job.autoscaler.enabled":                     &v,
+					"kubernetes.operator.job.autoscaler.enabled": nil,
+				}), "autoscaler enabled=" + v, nil
 			}),
 		r.patchTool("set_target_utilization",
 			"Set the autoscaler's target utilization (job.autoscaler.target.utilization), a fraction in (0, 1].",
