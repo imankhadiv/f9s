@@ -448,10 +448,11 @@ const (
 type boxHealth int
 
 const (
-	hSource     boxHealth = iota // grey — source / idle / unsampled
-	hHealthy                     // blue — steady
-	hWarn                        // amber — busy/low backpressure
-	hBottleneck                  // red — the slow stage
+	hSource        boxHealth = iota // grey — source / idle / unsampled
+	hFlow                           // blue — steady dataflow
+	hWarn                           // orange — elevated busy/low backpressure
+	hBusy                           // red — saturated downstream bottleneck
+	hBackpressured                  // black/contrast — blocked by downstream work
 )
 
 // classify maps a vertex's live metrics to a health color, reusing the same
@@ -463,25 +464,29 @@ func (d *DagView) classify(n model.PlanNode, st dagStat) boxHealth {
 		return hSource
 	}
 	switch {
-	case st.level == "high" || st.busyMax >= 80:
-		return hBottleneck // the slow stage
+	case st.level == "high":
+		return hBackpressured
+	case st.busyMax >= 80:
+		return hBusy // likely downstream bottleneck
 	case st.level == "low" || st.busyMax >= 50:
 		return hWarn
 	case st.busyMax < 0 && st.level == "":
 		return hSource // unsampled
 	default:
-		return hHealthy
+		return hFlow
 	}
 }
 
 func boxColor(h boxHealth) lipgloss.TerminalColor {
 	switch h {
-	case hBottleneck:
+	case hBackpressured:
+		return styles.BackpressureColor()
+	case hBusy:
 		return styles.RedColor()
 	case hWarn:
 		return styles.AmberColor()
-	case hHealthy:
-		return styles.BlueColor()
+	case hFlow:
+		return styles.FlowColor()
 	default:
 		return styles.DimColor()
 	}
@@ -520,7 +525,7 @@ func (d *DagView) box(n model.PlanNode, bw int, selected bool) string {
 	// pending rescale: running parallelism differs from the scheduler target
 	parLine := lipgloss.NewStyle().Foreground(col).Bold(true).Render(fmt.Sprintf("parallelism  %d", par))
 	if t, ok := d.targets[n.ID]; ok && t > 0 && t != par {
-		parLine = styles.WarnText().Bold(true).Render(fmt.Sprintf("parallelism  %d → %d ⟳", par, t))
+		parLine = styles.StateText().Bold(true).Render(fmt.Sprintf("parallelism  %d → %d ⟳", par, t))
 	}
 
 	body := title + "\n" +
@@ -533,6 +538,7 @@ func (d *DagView) box(n model.PlanNode, bw int, selected bool) string {
 	bc := col
 	if selected {
 		border = lipgloss.ThickBorder() // ┏━┓ — obvious even without color
+		bc = styles.AccentColor()
 	}
 	return lipgloss.NewStyle().
 		Border(border).
@@ -638,8 +644,9 @@ func (d *DagView) renderBoxes(iw int) string {
 		d.xOff = 0
 	}
 	legend := "\n " +
-		styles.Dim().Render("source") + " · " + styles.BlueText().Render("healthy") + " · " +
-		styles.WarnText().Render("busy") + " · " + styles.ErrText().Render("bottleneck") +
+		styles.Dim().Render("source / unsampled") + " · " + styles.FlowText().Render("steady") + " · " +
+		styles.WarnText().Render("elevated") + " · " + styles.ErrText().Render("busy") + " · " +
+		styles.BackpressureText().Render("backpressured") +
 		styles.Dim().Render("   —   ←→ select · R rescale · shift+←→ pan")
 	return row + hint + "\n" + legend
 }

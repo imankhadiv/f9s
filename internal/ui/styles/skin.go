@@ -104,7 +104,7 @@ func LoadSkin(path string) error {
 	for token, color := range f.Colors {
 		target, ok := tokenTargets[token]
 		if !ok {
-			return fmt.Errorf("%s: unknown token %q (valid: accent, ok, warn, error, dim, selectionFg, selectionBg)", path, token)
+			return fmt.Errorf("%s: unknown token %q (valid: accent, ok, warn, error, dim, selectionFg, selectionBg, flow, state, backpressure)", path, token)
 		}
 		*target = color.terminalColor()
 	}

@@ -33,6 +33,18 @@ colors:
 	}
 }
 
+func TestLoadSkinAcceptsFlinkGraphSemanticColors(t *testing.T) {
+	err := LoadSkin(write(t, `
+colors:
+  flow: "#123456"
+  state: "#654321"
+  backpressure: "#111111"
+`))
+	if err != nil {
+		t.Fatalf("semantic DAG colors must be skin-overridable: %v", err)
+	}
+}
+
 func TestLoadSkinUnknownTokenFailsLoudly(t *testing.T) {
 	if err := LoadSkin(write(t, "colors:\n  acent: \"#fff\"\n")); err == nil {
 		t.Fatal("typo'd token must error, not silently ignore")
