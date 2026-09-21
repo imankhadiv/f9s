@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,6 +73,8 @@ type Client struct {
 	version   string // flink-version cached from the last Overview
 	modeMu    sync.Mutex
 	mode      *model.ModeInfo // deployment mode, cached (config is near-static)
+	gcMu      sync.Mutex
+	gcKeys    map[string][]string // metrics path → GC time/count keys (per-JVM collector names)
 	base      string
 	hc        *http.Client
 	header    http.Header
@@ -1050,6 +1053,93 @@ func (c *Client) JobManagerMetrics() (model.JMMetrics, error) {
 		}
 	}
 	return out, nil
+}
+
+// JVMStats reads one JVM's resource metrics from a metrics endpoint
+// ("/jobmanager/metrics" or "/taskmanagers/<id>/metrics"). GC collectors are
+// named per JVM (G1_Young_Generation, PS_Scavenge, …), so their keys are
+// discovered once per endpoint and cached. Missing metrics stay -1.
+func (c *Client) JVMStats(path string) (model.JVMStats, error) {
+	gc := c.gcMetricKeys(path)
+	keys := append([]string{
+		"Status.JVM.Memory.Heap.Used", "Status.JVM.Memory.Heap.Max",
+		"Status.JVM.Memory.Metaspace.Used", "Status.JVM.Memory.Metaspace.Max",
+		"Status.JVM.CPU.Load",
+		"Status.Flink.Memory.Managed.Used", "Status.Flink.Memory.Managed.Total",
+		"Status.Shuffle.Netty.AvailableMemorySegments", "Status.Shuffle.Netty.TotalMemorySegments",
+	}, gc...)
+	out := model.NewJVMStats()
+	ms, err := c.MetricValues(path, keys)
+	if err != nil {
+		return out, err
+	}
+	for _, m := range ms {
+		v, ok := m.Float()
+		if !ok {
+			continue
+		}
+		switch m.ID {
+		case "Status.JVM.Memory.Heap.Used":
+			out.HeapUsed = v
+		case "Status.JVM.Memory.Heap.Max":
+			out.HeapMax = v
+		case "Status.JVM.Memory.Metaspace.Used":
+			out.MetaUsed = v
+		case "Status.JVM.Memory.Metaspace.Max":
+			out.MetaMax = v
+		case "Status.JVM.CPU.Load":
+			out.CPULoad = v
+		case "Status.Flink.Memory.Managed.Used":
+			out.ManagedUsed = v
+		case "Status.Flink.Memory.Managed.Total":
+			out.ManagedTotal = v
+		case "Status.Shuffle.Netty.AvailableMemorySegments":
+			out.NetAvail = v
+		case "Status.Shuffle.Netty.TotalMemorySegments":
+			out.NetTotal = v
+		default:
+			switch {
+			case strings.HasSuffix(m.ID, ".Time"):
+				out.GCTimeMs = max(out.GCTimeMs, 0) + v
+			case strings.HasSuffix(m.ID, ".Count"):
+				out.GCCount = max(out.GCCount, 0) + v
+			}
+		}
+	}
+	return out, nil
+}
+
+// gcMetricKeys lists the per-collector GC Time/Count metric names at path.
+// The aggregate "All" collector (newer Flink) is skipped so it isn't
+// double-counted with the per-collector series. Cached on success only.
+func (c *Client) gcMetricKeys(path string) []string {
+	c.gcMu.Lock()
+	keys, ok := c.gcKeys[path]
+	c.gcMu.Unlock()
+	if ok {
+		return keys
+	}
+	names, err := c.ListMetricNames(path)
+	if err != nil {
+		return nil
+	}
+	keys = []string{}
+	for _, n := range names {
+		if !strings.HasPrefix(n, "Status.JVM.GarbageCollector.") || strings.HasPrefix(n, "Status.JVM.GarbageCollector.All.") {
+			continue
+		}
+		if strings.HasSuffix(n, ".Time") || strings.HasSuffix(n, ".Count") {
+			keys = append(keys, n)
+		}
+	}
+	sort.Strings(keys)
+	c.gcMu.Lock()
+	if c.gcKeys == nil {
+		c.gcKeys = map[string][]string{}
+	}
+	c.gcKeys[path] = keys
+	c.gcMu.Unlock()
+	return keys
 }
 
 // JobManagerConfig is GET /jobmanager/config.

@@ -26,6 +26,7 @@ import (
 	"github.com/imankhadiv/f9s/internal/audit"
 	"github.com/imankhadiv/f9s/internal/client"
 	"github.com/imankhadiv/f9s/internal/config"
+	"github.com/imankhadiv/f9s/internal/fleet"
 	"github.com/imankhadiv/f9s/internal/incident"
 	"github.com/imankhadiv/f9s/internal/invlog"
 	"github.com/imankhadiv/f9s/internal/ledger"
@@ -187,6 +188,7 @@ var commandTargets = []struct {
 	{[]string{"ask", "chat"}, "ask the AI (cluster-wide)"},
 	{[]string{"pulse", "pls"}, "cluster heartbeat"},
 	{[]string{"waste", "cost"}, "slot-waste finder"},
+	{[]string{"fleet", "jvm", "mem"}, "JVM fleet: heap, GC, metaspace, buffers"},
 	{[]string{"history", "hs"}, "history server"},
 	{[]string{"quit", "q"}, "quit"},
 }
@@ -322,6 +324,8 @@ func (a *App) runCommand(cmd string) tea.Cmd {
 		target = views.NewPulse(deps)
 	case "waste":
 		target = views.NewWasteFinder(deps)
+	case "fleet":
+		target = views.NewFleet(deps)
 	case "history":
 		hsURL := a.cfg.Contexts[a.contextName].HistoryServer
 		if hsURL == "" {
@@ -559,6 +563,7 @@ type sentinelMsg struct {
 	samples       []vertexSample
 	jobs          []jobHealth
 	liveJIDs      map[string]bool
+	liveTMs       map[string]bool // nil when the TM list failed
 	authoritative bool
 }
 
@@ -656,7 +661,8 @@ func (a *App) collectSentinel() tea.Cmd {
 				})
 			}
 		}
-		return sentinelMsg{samples: out, jobs: health, liveJIDs: live, authoritative: true}
+		liveTMs := fleet.Collect(cl, ring, now)
+		return sentinelMsg{samples: out, jobs: health, liveJIDs: live, liveTMs: liveTMs, authoritative: true}
 	}
 }
 
@@ -863,7 +869,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.authoritative {
 			a.sent.Prune(live)
+			liveTMs := msg.liveTMs
 			a.metrics.Prune(func(k metricts.Key) bool {
+				if k.Scope == metricts.ScopeTM {
+					return liveTMs == nil || liveTMs[k.ID] // a failed TM list prunes nothing
+				}
 				jid := metricts.JobOf(k)
 				return jid == "" || live[jid] // cluster-scope series outlive jobs
 			})

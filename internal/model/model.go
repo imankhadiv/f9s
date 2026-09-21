@@ -558,6 +558,31 @@ type JMMetrics struct {
 	CPULoad  float64 // 0..1 process CPU load, -1 when unknown
 }
 
+// JVMStats is one JobManager/TaskManager JVM's resource snapshot. Every
+// field is -1 when the cluster doesn't report it; GC counters are
+// cumulative (turn them into rates over time).
+type JVMStats struct {
+	HeapUsed, HeapMax         float64
+	MetaUsed, MetaMax         float64
+	CPULoad                   float64 // 0..1
+	GCTimeMs, GCCount         float64 // summed over collectors, cumulative
+	ManagedUsed, ManagedTotal float64 // TM only
+	NetAvail, NetTotal        float64 // TM only: network memory segments
+}
+
+// NewJVMStats returns a snapshot with every metric unknown.
+func NewJVMStats() JVMStats {
+	return JVMStats{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
+}
+
+// Frac returns used/total, or -1 when either side is unknown.
+func Frac(used, total float64) float64 {
+	if used < 0 || total <= 0 {
+		return -1
+	}
+	return used / total
+}
+
 // HeapPct returns heap utilisation as a whole percentage, or -1 when the
 // max is unknown.
 func (m JMMetrics) HeapPct() int {
