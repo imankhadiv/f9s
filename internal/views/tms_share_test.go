@@ -36,3 +36,15 @@ func TestTaskManagersNoShareLineForASingleJob(t *testing.T) {
 		t.Fatal("an application cluster has nothing to share")
 	}
 }
+
+func TestSlotShareForgetsDepartedTaskManagers(t *testing.T) {
+	v := NewTaskManagers(Deps{})
+	v.Update(tmsMsg{tms: []model.TaskManager{{ID: "tm-1", SlotsNumber: 2}, {ID: "tm-2", SlotsNumber: 2}},
+		names: map[string]string{"a": "alpha", "b": "beta"}})
+	v.Update(tmHeapMsg{id: "tm-1", heapPct: 1, gcTotal: -1, jobs: map[string]int{"a": 2}})
+	v.Update(tmHeapMsg{id: "tm-2", heapPct: 1, gcTotal: -1, jobs: map[string]int{"b": 2}})
+	v.Update(tmsMsg{tms: []model.TaskManager{{ID: "tm-1", SlotsNumber: 2}}, names: map[string]string{"a": "alpha"}})
+	if shares := v.slotShares(); len(shares) != 1 || shares[0].name != "alpha" {
+		t.Fatalf("departed TM still counted: %+v", shares)
+	}
+}

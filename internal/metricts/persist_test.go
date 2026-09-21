@@ -1,6 +1,7 @@
 package metricts
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,5 +53,19 @@ func TestDataPathHonoursXDG(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "/xdg")
 	if got := DataPath("prod"); got != "/xdg/f9s/metrics/prod.json" {
 		t.Fatalf("DataPath = %s", got)
+	}
+}
+
+func TestNaNNeverEntersTheRing(t *testing.T) {
+	r := New(0)
+	k := Key{ScopePin, "p", "value"}
+	r.Add(k, Point{Time: time.Now(), Value: math.NaN()})
+	r.Add(k, Point{Time: time.Now(), Value: math.Inf(1)})
+	r.Add(k, Point{Time: time.Now(), Value: 1})
+	if got := r.Values(k); len(got) != 1 {
+		t.Fatalf("ring kept %v", got)
+	}
+	if err := r.Save(filepath.Join(t.TempDir(), "m.json")); err != nil {
+		t.Fatalf("save must succeed: %v", err)
 	}
 }

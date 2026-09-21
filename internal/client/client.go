@@ -1119,7 +1119,7 @@ func (c *Client) JVMStats(path string) (model.JVMStats, error) {
 
 // gcMetricKeys lists the per-collector GC Time/Count metric names at path.
 // The aggregate "All" collector (newer Flink) is skipped so it isn't
-// double-counted with the per-collector series. Cached on success only.
+// double-counted with the per-collector series. Cached only once non-empty.
 func (c *Client) gcMetricKeys(path string) []string {
 	c.gcMu.Lock()
 	keys, ok := c.gcKeys[path]
@@ -1141,6 +1141,10 @@ func (c *Client) gcMetricKeys(path string) []string {
 		}
 	}
 	sort.Strings(keys)
+	if len(keys) == 0 {
+		// a freshly registered TM can list no GC metrics yet: retry next time
+		return nil
+	}
 	c.gcMu.Lock()
 	if c.gcKeys == nil {
 		c.gcKeys = map[string][]string{}

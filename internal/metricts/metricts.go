@@ -5,6 +5,7 @@
 package metricts
 
 import (
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -84,10 +85,10 @@ func New(size int) *Ring {
 }
 
 // Add appends one point, dropping the oldest past the ring size. Points older
-// than the series' newest are ignored so a slow sampler can't reorder time.
+// than the series' newest, and NaN/Inf values, are ignored.
 func (r *Ring) Add(k Key, p Point) {
-	if r == nil {
-		return
+	if r == nil || math.IsNaN(p.Value) || math.IsInf(p.Value, 0) {
+		return // Flink reports "NaN" for disabled metrics; it would poison JSON persistence
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

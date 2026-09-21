@@ -142,6 +142,16 @@ func (t *TaskManagersView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		t.err = ""
 		t.tms = msg.tms
 		t.names = msg.names
+		present := make(map[string]bool, len(t.tms))
+		for _, tm := range t.tms {
+			present[tm.ID] = true
+		}
+		for id := range t.heaps { // a departed TM's slots must not count toward the share
+			if !present[id] {
+				delete(t.heaps, id)
+				delete(t.gc, id)
+			}
+		}
 		cl := t.deps.CL
 		var cmds []tea.Cmd
 		for _, tm := range t.tms {

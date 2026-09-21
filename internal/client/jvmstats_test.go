@@ -53,3 +53,22 @@ func TestJVMStatsDiscoversCollectorsOnce(t *testing.T) {
 		t.Fatalf("collector names listed %d times, want once", lists)
 	}
 }
+
+func TestEmptyGCListingIsNotCached(t *testing.T) {
+	var lists int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("get") == "" {
+			atomic.AddInt32(&lists, 1)
+			_, _ = w.Write([]byte(`[]`)) // young TM: metrics not registered yet
+			return
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	cl := New(config.Context{URL: srv.URL})
+	_, _ = cl.JVMStats("/taskmanagers/t/metrics")
+	_, _ = cl.JVMStats("/taskmanagers/t/metrics")
+	if lists != 2 {
+		t.Fatalf("an empty collector listing must be retried, listed %d times", lists)
+	}
+}
