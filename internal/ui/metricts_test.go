@@ -2,7 +2,9 @@ package ui
 
 import (
 	"testing"
+	"time"
 
+	"github.com/imankhadiv/f9s/internal/config"
 	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
 )
@@ -25,5 +27,19 @@ func TestRecordCheckpointAddsNewestCompletedOnce(t *testing.T) {
 	dur, ok := ring.Last(metricts.Key{Scope: metricts.ScopeJob, ID: "j", Metric: metricts.CkptDuration})
 	if !ok || dur.Value != 50 {
 		t.Fatalf("duration = %+v %v", dur, ok)
+	}
+}
+
+func TestAppPersistsMetricRingAcrossRestarts(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg := &config.Config{Contexts: map[string]config.Context{"dev": {URL: "http://localhost:1"}}}
+	a := New(cfg, "dev", 2, nil, nil)
+	k := metricts.Key{Scope: metricts.ScopeJob, ID: "j", Metric: metricts.CkptSize}
+	a.metrics.Add(k, metricts.Point{Time: time.Now(), Value: 42})
+	a.SaveState()
+
+	b := New(cfg, "dev", 2, nil, nil)
+	if p, ok := b.metrics.Last(k); !ok || p.Value != 42 {
+		t.Fatalf("history not restored: %+v %v", p, ok)
 	}
 }

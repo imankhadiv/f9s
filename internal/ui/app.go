@@ -132,6 +132,7 @@ type App struct {
 	cmdInput     textinput.Model
 	sent         *sentinel.Sentinel
 	metrics      *metricts.Ring
+	sentTicks    int
 	alertHook    *plugin.Hook
 	watchStore   *watch.Store
 	invRunning   bool
@@ -274,6 +275,18 @@ func (a *App) fitFlash(s string) string {
 	return fitText(s, a.width-1) // flashLine indents by one column
 }
 
+// Metric-ring persistence: snapshot every ringSaveEvery sampler ticks (~5
+// min) and on exit; reload at most ringMaxAge of history on start.
+const (
+	ringSaveEvery = 20
+	ringMaxAge    = 2 * time.Hour
+)
+
+// SaveState persists the metric ring for the active context (best-effort).
+func (a *App) SaveState() {
+	_ = a.metrics.Save(metricts.DataPath(a.contextName))
+}
+
 // deps is the one place views get their shared dependencies — every field,
 // so no navigation path hands a view a partial set (a missing ring silently
 // disables trends and estimates).
@@ -366,6 +379,7 @@ func New(cfg *config.Config, contextName string, refreshSeconds int, plugins []p
 	sent := sentinel.NewPersistent(contextName)
 	ws := watch.NewStore()
 	ring := metricts.New(metricts.BufferLen)
+	ring.Load(metricts.DataPath(contextName), ringMaxAge, time.Now())
 	deps := views.Deps{CL: cl, Ctx: contextName, Cfg: cfg, Plugins: plugins, Sentinel: sent, Watch: ws, Metrics: ring}
 	a := &App{
 		cfg:          cfg,
@@ -862,6 +876,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sentinelMsg:
 		a.sentRunning = false
+		if a.sentTicks++; a.sentTicks%ringSaveEvery == 0 {
+			a.SaveState()
+		}
 		var cmds []tea.Cmd
 		live := msg.liveJIDs
 		if live == nil {
@@ -1109,7 +1126,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.connected, a.everSeen = false, false
 		a.sent = sentinel.NewPersistent(msg.Name) // fresh watchdog for the new cluster
 		a.watchStore = watch.NewStore()
+		a.SaveState() // keep the old cluster's history for next time
 		a.metrics = metricts.New(metricts.BufferLen)
+		a.metrics.Load(metricts.DataPath(msg.Name), ringMaxAge, time.Now())
 		deps := a.deps()
 		a.stack = []views.Model{views.NewJobs(deps)}
 		a.aiPanel.Reset(deps) // fresh cluster → drop the old transcript/scrubber

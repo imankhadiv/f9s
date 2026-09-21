@@ -101,8 +101,11 @@ func main() {
 		return
 	}
 
-	prog := tea.NewProgram(ui.New(cfg, name, refresh, plugins, alertHook), tea.WithAltScreen())
-	if _, err := prog.Run(); err != nil {
+	app := ui.New(cfg, name, refresh, plugins, alertHook)
+	prog := tea.NewProgram(app, tea.WithAltScreen())
+	_, err = prog.Run()
+	app.SaveState() // metric history survives restarts
+	if err != nil {
 		fail(err)
 	}
 }
