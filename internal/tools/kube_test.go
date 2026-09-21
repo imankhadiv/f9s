@@ -33,6 +33,7 @@ func fakeOperator(t *testing.T) *[]string {
 }
 
 func TestOperatorToolsListedOnlyWithKubeContext(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir()) // RunAudited below writes an audit record
 	has := func(reg *Registry) bool {
 		for _, tl := range reg.List(true) {
 			if tl.Name == "k8s_restart_job" {

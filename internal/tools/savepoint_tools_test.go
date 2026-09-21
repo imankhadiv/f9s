@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imankhadiv/f9s/internal/client"
 	"github.com/imankhadiv/f9s/internal/config"
+	"github.com/imankhadiv/f9s/internal/ledger"
 )
 
 func TestEveryMutatingToolCarriesRiskCopy(t *testing.T) {
@@ -116,5 +118,26 @@ func TestRestoreFromSavepointSubmitsJar(t *testing.T) {
 	}
 	if _, err := reg.RunAudited(context.Background(), "restore_from_savepoint", map[string]string{"jar_id": "app.jar"}, "test"); err == nil {
 		t.Fatal("restore without a savepoint path must be refused")
+	}
+}
+
+func TestDisposeRefusesFinalSavepointOfStoppedJob(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	_ = ledger.Append("dev", ledger.Entry{Time: time.Now().Add(-time.Hour), JID: "gone", Job: "billing", Action: "savepoint", Path: "s3://sp/billing-old"})
+	_ = ledger.Append("dev", ledger.Entry{Time: time.Now(), JID: "gone", Job: "billing", Action: "stop", Path: "s3://sp/billing-final"})
+	disposed := false
+	reg := New(fakeFlink(t, true, func() { disposed = true }, nil), "dev")
+	_, err := reg.RunAudited(context.Background(), "dispose_savepoint", map[string]string{"savepoint_path": "s3://sp/billing-final"}, "test")
+	if err == nil || !strings.Contains(err.Error(), "not running") || disposed {
+		t.Fatalf("final stop savepoint of a stopped job: err=%v disposed=%v", err, disposed)
+	}
+}
+
+func TestDisposeFailsClosedWhenClusterUnreadable(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	reg := New(client.New(config.Context{URL: "http://127.0.0.1:1"}), "dev")
+	_, err := reg.RunAudited(context.Background(), "dispose_savepoint", map[string]string{"savepoint_path": "s3://sp/x"}, "test")
+	if err == nil || !strings.Contains(err.Error(), "cannot verify") {
+		t.Fatalf("unreadable cluster must refuse, got %v", err)
 	}
 }

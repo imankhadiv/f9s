@@ -162,36 +162,58 @@ func waitForDisposal(cl *client.Client, reqID string) error {
 	return fmt.Errorf("disposal still in progress after 2m; check the cluster")
 }
 
-// onlyRecoveryPoint returns the running job for which path is the newest
-// completed savepoint while its checkpoints are not retained (deleted when
-// the job stops) — deleting it would leave nothing to restore from.
-func onlyRecoveryPoint(cl *client.Client, path string) string {
+// recoveryGuard refuses to dispose a savepoint that may be the only way to
+// bring a job back: the newest completed savepoint of a running job whose
+// checkpoints are not retained, or the newest ledger savepoint/stop of a job
+// that is no longer running (after stop-with-savepoint, that final savepoint
+// IS the job). It fails closed: if the cluster can't be read, it refuses.
+func recoveryGuard(cl *client.Client, contextName, path string) error {
 	jobs, err := cl.Jobs()
 	if err != nil {
-		return ""
+		return fmt.Errorf("refusing: cannot verify %s is not a recovery point (%v)", path, err)
 	}
+	running := map[string]bool{}
 	for _, j := range jobs {
 		if j.State != "RUNNING" && j.State != "RESTARTING" {
 			continue
 		}
+		running[j.JID] = true
 		cp, err := cl.Checkpoints(j.JID)
 		if err != nil {
-			continue
+			return fmt.Errorf("refusing: cannot read checkpoints of running job %s (%v)", j.JID, err)
 		}
 		for _, h := range cp.History { // newest first
-			if h.IsSavepoint && h.Status == "COMPLETED" {
-				if h.ExternalPath == path {
-					if cfg, err := cl.CheckpointConfig(j.JID); err == nil {
-						if _, warn := analyze.Retention(cfg); warn {
-							return j.JID
-						}
-					}
-				}
-				break
+			if !h.IsSavepoint || h.Status != "COMPLETED" {
+				continue
 			}
+			if h.ExternalPath == path {
+				cfg, err := cl.CheckpointConfig(j.JID)
+				if err != nil {
+					return fmt.Errorf("refusing: cannot read checkpoint retention of job %s (%v)", j.JID, err)
+				}
+				if _, warn := analyze.Retention(cfg); warn {
+					return fmt.Errorf("refusing: %s is the newest savepoint of running job %s, which does not retain checkpoints — it may be the job's only recovery point", path, j.JID)
+				}
+			}
+			break
 		}
 	}
-	return ""
+	entries, _ := ledger.List(contextName)
+	newest := map[string]ledger.Entry{} // jid → newest savepoint/stop
+	for _, e := range entries {
+		if e.JID == "" || (e.Action != "savepoint" && e.Action != "stop") {
+			continue
+		}
+		if cur, ok := newest[e.JID]; !ok || e.Time.After(cur.Time) {
+			newest[e.JID] = e
+		}
+	}
+	for jid, e := range newest {
+		if e.Path == path && !running[jid] {
+			return fmt.Errorf("refusing: %s is the newest savepoint of job %s (%s), which is not running — it is how that job resumes", path, e.Job, jid)
+		}
+	}
+	return nil
 }
 
 // New builds the registry for one cluster.
@@ -459,8 +481,8 @@ func New(cl *client.Client, contextName string, opts ...Option) *Registry {
 				if path == "" {
 					return "", fmt.Errorf("savepoint_path is required")
 				}
-				if jid := onlyRecoveryPoint(cl, path); jid != "" {
-					return "", fmt.Errorf("refusing: %s is the newest savepoint of running job %s, which does not retain checkpoints — it may be the job's only recovery point", path, jid)
+				if err := recoveryGuard(cl, contextName, path); err != nil {
+					return "", err
 				}
 				id, err := cl.DisposeSavepoint(path)
 				if err != nil {
