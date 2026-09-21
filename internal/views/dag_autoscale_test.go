@@ -104,3 +104,22 @@ func TestDagEstimateWithoutAutoscalerOnlyFlagsUpscale(t *testing.T) {
 		t.Fatal("no kubeContext → no kubectl")
 	}
 }
+
+func TestDagPinProposesOverrideForSelectedVertex(t *testing.T) {
+	d := autoscaleDag(t, 100)
+	d.selVID = vSink
+	_, cmd := d.Update(keyMsg("O"))
+	pm, ok := cmd().(ProposalMsg)
+	if !ok || pm.Tool != "set_parallelism_override" || pm.Args["vertex"] != vSink || pm.Args["name"] != "orders" {
+		t.Fatalf("proposal = %#v", cmd())
+	}
+	if pm.Input == nil || pm.Input.Default != "2" {
+		t.Fatalf("pin must prefill the recommendation, got %+v", pm.Input)
+	}
+
+	unlinked := NewDagView(Deps{}, "j", "job")
+	_, cmd = unlinked.Update(keyMsg("O"))
+	if fm, ok := cmd().(FlashMsg); !ok || !fm.IsErr {
+		t.Fatalf("unlinked job must explain why O does nothing, got %#v", cmd())
+	}
+}

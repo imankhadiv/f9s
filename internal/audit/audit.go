@@ -4,6 +4,7 @@
 package audit
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/user"
@@ -59,4 +60,24 @@ func Append(r Record) {
 		return
 	}
 	f.Write(append(data, '\n'))
+}
+
+// List reads the context's trail, oldest first (malformed lines skipped).
+func List(contextName string) ([]Record, error) {
+	data, err := os.ReadFile(filepath.Join(dir(), contextName+".jsonl"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []Record
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		var r Record
+		if len(line) == 0 || json.Unmarshal(line, &r) != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }

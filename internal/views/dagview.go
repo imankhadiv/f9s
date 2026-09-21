@@ -101,6 +101,7 @@ func (d *DagView) Bindings() []key.Binding {
 	return []key.Binding{
 		binding("left", "←→", "select box"),
 		binding("R", "R", "rescale"),
+		binding("O", "O", "pin parallelism (operator CR)"),
 		binding("up", "↑↓", "scroll"),
 		binding("shift+left", "shift+←→", "pan"),
 		binding("esc", "esc", "back"),
@@ -307,6 +308,24 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 				d.vp.SetContent(d.render(d.vp.Width))
 			}
 			return d, nil
+		case "O":
+			// durable per-vertex pin in the FlinkDeployment — only when the
+			// job is linked to its CR, prefilled with the recommendation
+			if !d.auto.linked {
+				return d, flashErrV("no FlinkDeployment linked to this job (needs kubeContext and an operator-managed job)")
+			}
+			n, ok := d.nodeByID(d.selVID)
+			if !ok {
+				return d, nil
+			}
+			_, par := d.nodeLabel(n)
+			def := par
+			if to, src := d.recommendation(n.ID, par); src != "" {
+				def = to
+			}
+			args := map[string]string{"namespace": d.auto.ns, "name": d.auto.name, "vertex": n.ID}
+			return d, propose(d.deps, "set_parallelism_override", d.auto.ns+"/"+d.auto.name, args,
+				&ProposalInput{Arg: "parallelism", Label: "pin parallelism (0 removes the pin)", Default: fmt.Sprint(def)})
 		case "R":
 			if g := readOnlyGuard(d.deps); g != nil {
 				return d, g

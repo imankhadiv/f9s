@@ -44,10 +44,88 @@ func (d *KubeDetail) Bindings() []key.Binding {
 	if d.entry.deploy != nil {
 		bs = append(bs, binding("p", "p", "pods"))
 	}
+	bs = append(bs, binding("y", "y", "yaml"))
+	if d.jobSpec() != nil {
+		bs = append(bs,
+			binding("s", "s", "savepoint"),
+			binding("z", "z", "suspend/resume"),
+			binding("x", "x", "restart"),
+			binding("P", "P", "parallelism"),
+			binding("b", "b", "redeploy from savepoint"))
+	}
+	if d.entry.deploy != nil && !d.entry.deploy.Session() {
+		bs = append(bs,
+			binding("o", "o", "autoscaler on/off"),
+			binding("u", "u", "target utilization"))
+	}
 	return append(bs,
-		binding("y", "y", "yaml"),
 		binding("up", "↑↓/pgup", "scroll"),
 		binding("esc", "esc", "back"))
+}
+
+// jobSpec is the resource's spec.job (nil for a session cluster).
+func (d *KubeDetail) jobSpec() *kube.JobSpec {
+	if d.entry.deploy != nil {
+		return d.entry.deploy.Job
+	}
+	if d.entry.session != nil {
+		return d.entry.session.Job
+	}
+	return nil
+}
+
+// crArgs addresses the resource for the operator tools.
+func (d *KubeDetail) crArgs() map[string]string {
+	kind := kube.KindDeployment
+	if d.entry.session != nil {
+		kind = kube.KindSessionJob
+	}
+	return map[string]string{"namespace": d.entry.namespace(), "name": d.entry.name(), "kind": kind}
+}
+
+// action maps a key to an operator-tool proposal (nil when the key isn't an
+// action here). Every one goes through the app's confirm dialog and audit.
+func (d *KubeDetail) action(k string) tea.Cmd {
+	job := d.jobSpec()
+	label := d.entry.namespace() + "/" + d.entry.name()
+	args := d.crArgs()
+	app := d.entry.deploy != nil && !d.entry.deploy.Session()
+	switch {
+	case k == "s" && job != nil:
+		return propose(d.deps, "k8s_trigger_savepoint", label, args, nil)
+	case k == "z" && job != nil:
+		if job.State == "suspended" {
+			return propose(d.deps, "k8s_resume_job", label, args, nil)
+		}
+		return propose(d.deps, "k8s_suspend_job", label, args, nil)
+	case k == "x" && job != nil:
+		return propose(d.deps, "k8s_restart_job", label, args, nil)
+	case k == "P" && job != nil:
+		return propose(d.deps, "k8s_set_parallelism", label, args,
+			&ProposalInput{Arg: "parallelism", Label: "new job parallelism", Default: fmt.Sprint(job.Parallelism)})
+	case k == "b" && job != nil:
+		def := ""
+		if dep := d.entry.deploy; dep != nil && dep.LastSavepoint != nil {
+			def = dep.LastSavepoint.Location
+		}
+		return propose(d.deps, "k8s_redeploy_from_savepoint", label, args,
+			&ProposalInput{Arg: "savepoint_path", Label: "savepoint path to restore from", Default: def})
+	case k == "o" && app:
+		next := "true"
+		if AutoscalerMode(d.entry.deploy.FlinkConfig) != "off" {
+			next = "false"
+		}
+		args["enabled"] = next
+		return propose(d.deps, "set_autoscaler_enabled", label, args, nil)
+	case k == "u" && app:
+		cur := d.entry.deploy.FlinkConfig["job.autoscaler.target.utilization"]
+		if cur == "" {
+			cur = "0.7"
+		}
+		return propose(d.deps, "set_target_utilization", label, args,
+			&ProposalInput{Arg: "value", Label: "target utilization (0–1]", Default: cur})
+	}
+	return nil
 }
 
 func (d *KubeDetail) Init() tea.Cmd { return nil }
@@ -115,6 +193,10 @@ func (d *KubeDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case "p":
 			if d.entry.deploy != nil {
 				return d, push(NewKubePods(d.deps, d.kubeContext, ns, name))
+			}
+		case "s", "z", "x", "P", "b", "o", "u":
+			if cmd := d.action(msg.String()); cmd != nil {
+				return d, cmd
 			}
 		case "y":
 			kind := "flinkdeployment"

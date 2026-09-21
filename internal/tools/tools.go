@@ -34,7 +34,9 @@ type Tool struct {
 	// Risk is the consequence copy the confirm dialog shows before a
 	// mutating tool runs — the human's informed tap is the whole defense.
 	Risk string
-	Run  func(ctx context.Context, args map[string]string) (string, error)
+	// NeedsKube marks operator tools, listed only when a kubeContext is set.
+	NeedsKube bool
+	Run       func(ctx context.Context, args map[string]string) (string, error)
 }
 
 // Registry holds the tool set for one cluster context.
@@ -97,7 +99,7 @@ func (r *Registry) RunAudited(ctx context.Context, name string, args map[string]
 func (r *Registry) List(includeMutating bool) []Tool {
 	out := make([]Tool, 0, len(r.tools))
 	for _, t := range r.tools {
-		if t.Mutating && !includeMutating {
+		if (t.Mutating && !includeMutating) || (t.NeedsKube && r.kube == "") {
 			continue
 		}
 		out = append(out, t)
@@ -472,5 +474,6 @@ func New(cl *client.Client, contextName string, opts ...Option) *Registry {
 			},
 		},
 	}
+	reg.tools = append(reg.tools, reg.kubeTools()...)
 	return reg
 }

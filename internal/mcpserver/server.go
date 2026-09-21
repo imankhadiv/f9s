@@ -30,7 +30,8 @@ func newServer(cfg *config.Config, contextName, version string, allowWrites bool
 	s := server.NewMCPServer("f9s", version,
 		server.WithInstructions(fmt.Sprintf(
 			"Operate the Apache Flink cluster behind f9s context %q (%s). "+
-				"Read tools are always available. Mutating tools (savepoint/stop/cancel) "+
+				"Read tools are always available. Mutating tools (savepoints, stop/cancel, rescale, "+
+				"savepoint restore/disposal, Flink Kubernetes Operator CR changes when kubeContext is set) "+
 				"require --allow-writes and a context that is not marked readOnly.",
 			name, cctx.URL)))
 

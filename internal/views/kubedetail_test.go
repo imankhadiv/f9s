@@ -121,3 +121,56 @@ func TestKubeEventsAndPodsRender(t *testing.T) {
 		t.Fatalf("pods view:\n%s", b)
 	}
 }
+
+func TestKubeDetailActionsProposeOperatorTools(t *testing.T) {
+	cfg := &config.Config{Contexts: map[string]config.Context{"prod": {KubeContext: "k"}}}
+	v := NewKubeDetail(Deps{Ctx: "prod", Cfg: cfg}, "k", richKubeEntry())
+	cases := map[string]string{
+		"s": "k8s_trigger_savepoint", "z": "k8s_suspend_job", "x": "k8s_restart_job",
+		"P": "k8s_set_parallelism", "b": "k8s_redeploy_from_savepoint",
+		"o": "set_autoscaler_enabled", "u": "set_target_utilization",
+	}
+	for k, tool := range cases {
+		_, cmd := v.Update(keyMsg(k))
+		if cmd == nil {
+			t.Fatalf("%s: no command", k)
+		}
+		pm, ok := cmd().(ProposalMsg)
+		if !ok || pm.Tool != tool || pm.Source != "tui" || pm.Args["namespace"] != "stream" || pm.Args["name"] != "orders" {
+			t.Fatalf("%s: proposal = %#v", k, cmd())
+		}
+		switch k {
+		case "b":
+			if pm.Input == nil || pm.Input.Default != "s3://sp/9" {
+				t.Fatalf("redeploy must prefill the last savepoint: %+v", pm.Input)
+			}
+		case "o":
+			if pm.Args["enabled"] != "false" {
+				t.Fatalf("autoscaler is advisory (on) → toggle proposes off, got %v", pm.Args)
+			}
+		case "P":
+			if pm.Input == nil || pm.Input.Default != "4" {
+				t.Fatalf("parallelism input default = %+v", pm.Input)
+			}
+		}
+	}
+}
+
+func TestKubeDetailActionsBlockedReadOnly(t *testing.T) {
+	cfg := &config.Config{Contexts: map[string]config.Context{"prod": {KubeContext: "k", ReadOnly: true}}}
+	v := NewKubeDetail(Deps{Ctx: "prod", Cfg: cfg}, "k", richKubeEntry())
+	_, cmd := v.Update(keyMsg("x"))
+	if fm, ok := cmd().(FlashMsg); !ok || !strings.Contains(fm.Text, "[RO]") {
+		t.Fatalf("read-only must block operator actions, got %#v", cmd())
+	}
+}
+
+func TestSessionClusterHasNoJobActions(t *testing.T) {
+	d := kube.FlinkDeployment{Namespace: "a", Name: "session"}
+	v := NewKubeDetail(Deps{}, "k", kubeEntry{deploy: &d})
+	for _, k := range []string{"s", "z", "x", "P", "b", "o", "u"} {
+		if v.action(k) != nil {
+			t.Fatalf("session cluster offered %q", k)
+		}
+	}
+}
