@@ -40,6 +40,7 @@ func NewCheckpoints(deps Deps, jid, name string) *CheckpointsView {
 		{Title: "AGE", Width: 8, Right: true},
 		{Title: "DURATION", Width: 9, Right: true},
 		{Title: "SIZE", Width: 9, Right: true},
+		{Title: "DELTA", Width: 14, Right: true},
 		{Title: "ACK", Width: 7, Right: true},
 		{Title: "FAILURE", Width: -1},
 	})
@@ -91,6 +92,7 @@ func (c *CheckpointsView) Update(msg tea.Msg) (Model, tea.Cmd) {
 				uitable.Plain(model.FmtAge(h.TriggerTimestamp)),
 				uitable.Plain(model.FmtDuration(h.EndToEndDuration)),
 				uitable.Plain(model.FmtBytes(h.StateSize)),
+				deltaCell(h),
 				uitable.Styled(fmt.Sprintf("%d/%d", h.NumAcknowledged, h.NumSubtasks), ackStyle),
 				uitable.Styled(h.FailureMessage, styles.ErrText()),
 			})
@@ -108,6 +110,50 @@ func (c *CheckpointsView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		c.tbl.Update(msg)
 	}
 	return c, nil
+}
+
+// deltaCell shows what a checkpoint uploaded (checkpointed_size) and its
+// share of the full state — small for healthy incremental checkpoints.
+func deltaCell(h model.Checkpoint) uitable.Cell {
+	if h.CheckpointedSize <= 0 || h.StateSize <= 0 {
+		return uitable.Styled("-", styles.Dim())
+	}
+	p := h.CheckpointedSize * 100 / h.StateSize
+	return uitable.Styled(fmt.Sprintf("%s %3d%%", model.FmtBytes(h.CheckpointedSize), p), styles.Dim())
+}
+
+// healthLines renders the checkpoint-health lines under the config line:
+// incremental delta, in-flight data, retention on cancel, failure budget.
+func (c *CheckpointsView) healthLines() []string {
+	var out []string
+	inc := analyze.IncrementalHealth(c.cp.History, c.cfg.StateBackend)
+	if sum := inc.Summary(); sum != "" {
+		st := styles.Dim()
+		if inc.FullUpload {
+			st = styles.WarnText()
+		}
+		out = append(out, st.Render(" "+sum))
+	}
+	if sm := c.cp.Summary; sm.AlignmentBuffer.Max > 0 || sm.PersistedData.Max > 0 {
+		out = append(out, styles.Dim().Render(fmt.Sprintf(" in-flight   aligned-buffered p50 %s · max %s · persisted (unaligned) p50 %s · max %s",
+			model.FmtBytes(int64(sm.AlignmentBuffer.P50)), model.FmtBytes(int64(sm.AlignmentBuffer.Max)),
+			model.FmtBytes(int64(sm.PersistedData.P50)), model.FmtBytes(int64(sm.PersistedData.Max)))))
+	}
+	if txt, warn := analyze.Retention(c.cfg); warn {
+		out = append(out, styles.WarnText().Render(" ⚠ "+txt))
+	} else {
+		out = append(out, styles.Dim().Render(" "+txt))
+	}
+	txt, level := analyze.Tolerance(c.cfg.TolerableFailed, analyze.FailureStreak(c.cp.History))
+	switch level {
+	case "crit":
+		out = append(out, styles.ErrText().Render(" ⚠ "+txt))
+	case "warn":
+		out = append(out, styles.WarnText().Render(" "+txt))
+	default:
+		out = append(out, styles.Dim().Render(" "+txt))
+	}
+	return out
 }
 
 // backendBadge paints the state backend with disaggregated-state awareness:
@@ -144,6 +190,12 @@ func (c *CheckpointsView) AIContext() (string, []string) {
 		fmt.Fprintf(&b, "config: %s · every %s · timeout %s · %s barriers · backend %s\n",
 			c.cfg.Mode, model.FmtDuration(c.cfg.Interval), model.FmtDuration(c.cfg.Timeout),
 			align, c.cfg.StateBackend)
+		ret, _ := analyze.Retention(c.cfg)
+		tol, _ := analyze.Tolerance(c.cfg.TolerableFailed, analyze.FailureStreak(c.cp.History))
+		fmt.Fprintf(&b, "%s\n%s\n", ret, tol)
+		if sum := analyze.IncrementalHealth(c.cp.History, c.cfg.StateBackend).Summary(); sum != "" {
+			b.WriteString(sum + "\n")
+		}
 	}
 	if len(c.cp.History) > 0 {
 		b.WriteString("recent (newest first):\n")
@@ -187,6 +239,10 @@ func (c *CheckpointsView) View(width, height int) string {
 				c.cfg.Mode, model.FmtDuration(c.cfg.Interval), model.FmtDuration(c.cfg.Timeout),
 				unaligned)) + backendBadge(c.cfg) + "\n"
 			used++
+			for _, l := range c.healthLines() {
+				out += l + "\n"
+				used++
+			}
 			if f := c.cp.Latest.Failed; f.FailureTimestamp > 0 {
 				msg := f.FailureMessage
 				if msg == "" {

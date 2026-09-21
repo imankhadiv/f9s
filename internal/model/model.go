@@ -181,6 +181,11 @@ type Checkpoint struct {
 	NumAcknowledged  int    `json:"num_acknowledged_subtasks"`
 	FailureMessage   string `json:"failure_message"`
 	ExternalPath     string `json:"external_path"`
+	// CheckpointedSize is what this checkpoint actually uploaded; with
+	// incremental checkpoints it is a delta, far below StateSize (Flink 1.15+).
+	CheckpointedSize  int64 `json:"checkpointed_size"`
+	AlignmentBuffered int64 `json:"alignment_buffered"`
+	PersistedData     int64 `json:"persisted_data"` // in-flight data (unaligned)
 }
 
 // JSONFloat tolerates Flink's habit of serializing NaN/Infinity as strings
@@ -224,6 +229,8 @@ type CheckpointSummary struct {
 	StateSize        SummaryStat `json:"state_size"`
 	EndToEndDuration SummaryStat `json:"end_to_end_duration"`
 	AlignmentBuffer  SummaryStat `json:"alignment_buffered"`
+	CheckpointedSize SummaryStat `json:"checkpointed_size"`
+	PersistedData    SummaryStat `json:"persisted_data"`
 }
 
 // Checkpoints is GET /jobs/:jid/checkpoints.
@@ -294,6 +301,15 @@ type CheckpointConfig struct {
 	CheckpointStorage string `json:"checkpoint_storage"`
 	ChangelogEnabled  bool   `json:"state_changelog_enabled"`
 	ChangelogStorage  string `json:"changelog_storage"`
+	MinPause          int64  `json:"min_pause"`
+	MaxConcurrent     int    `json:"max_concurrent"`
+	// TolerableFailed is how many consecutive checkpoint failures the job
+	// survives; one more fails it over (Flink's default is 0).
+	TolerableFailed int `json:"tolerable_failed_checkpoints"`
+	Externalization struct {
+		Enabled              bool `json:"enabled"`
+		DeleteOnCancellation bool `json:"delete_on_cancellation"`
+	} `json:"externalization"`
 }
 
 // CheckpointSubtask is one subtask row of
