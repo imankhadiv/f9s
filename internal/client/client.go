@@ -417,6 +417,14 @@ func (c *Client) CheckpointConfig(jid string) (model.CheckpointConfig, error) {
 	return v, err
 }
 
+// CheckpointDetail is GET /jobs/:jid/checkpoints/details/:id — per-vertex
+// size/duration/alignment for one checkpoint.
+func (c *Client) CheckpointDetail(jid string, cpID int64) (model.CheckpointDetail, error) {
+	var v model.CheckpointDetail
+	err := c.get(fmt.Sprintf("/jobs/%s/checkpoints/details/%d", jid, cpID), &v)
+	return v, err
+}
+
 // CheckpointSubtasks is GET /jobs/:jid/checkpoints/details/:cp/subtasks/:vid.
 func (c *Client) CheckpointSubtasks(jid string, cpID int64, vid string) ([]model.CheckpointSubtask, error) {
 	var v struct {

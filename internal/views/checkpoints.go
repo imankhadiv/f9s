@@ -50,7 +50,11 @@ func NewCheckpoints(deps Deps, jid, name string) *CheckpointsView {
 func (c *CheckpointsView) Title() string   { return "checkpoints" }
 func (c *CheckpointsView) Filtering() bool { return false }
 func (c *CheckpointsView) Bindings() []key.Binding {
-	return []key.Binding{binding("enter", "enter", "per-subtask breakdown"), binding("esc", "esc", "back")}
+	return []key.Binding{
+		binding("enter", "enter", "per-subtask breakdown"),
+		binding("c", "c", "compare with previous checkpoints"),
+		binding("esc", "esc", "back"),
+	}
 }
 
 func (c *CheckpointsView) Init() tea.Cmd { return c.Refresh() }
@@ -100,6 +104,12 @@ func (c *CheckpointsView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		c.tbl.SetRows(rows)
 		return c, nil
 	case tea.KeyMsg:
+		if msg.String() == "c" {
+			if ids := c.compareIDs(); len(ids) >= 2 {
+				return c, push(NewCheckpointCompare(c.deps, c.jid, c.name, ids))
+			}
+			return c, flashErrV("need at least two completed checkpoints from the selected one back to compare")
+		}
 		if msg.String() == "enter" && len(c.cp.History) > 0 {
 			cur := c.tbl.Cursor()
 			if cur < len(c.cp.History) {
@@ -110,6 +120,25 @@ func (c *CheckpointsView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		c.tbl.Update(msg)
 	}
 	return c, nil
+}
+
+// compareIDs picks the selected checkpoint (if completed) and the completed,
+// non-savepoint checkpoints before it: up to compareN, newest first.
+func (c *CheckpointsView) compareIDs() []int64 {
+	start := c.tbl.Cursor()
+	if c.tbl.Len() == 0 || start < 0 || start >= len(c.cp.History) {
+		return nil
+	}
+	var ids []int64
+	for _, h := range c.cp.History[start:] { // history is newest first
+		if h.Status == "COMPLETED" && !h.IsSavepoint {
+			ids = append(ids, h.ID)
+			if len(ids) == compareN {
+				break
+			}
+		}
+	}
+	return ids
 }
 
 // deltaCell shows what a checkpoint uploaded (checkpointed_size) and its

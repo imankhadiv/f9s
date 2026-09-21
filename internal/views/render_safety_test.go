@@ -62,6 +62,7 @@ func TestViewsRenderSafelyAtAnySize(t *testing.T) {
 		"kubeevents":     func() Model { return NewKubeEvents(deps, "kc", "ns", "name") },
 		"kubepods":       func() Model { return NewKubePods(deps, "kc", "ns", "name") },
 		"fleet":          func() Model { return NewFleet(deps) },
+		"ckptcompare":    func() Model { return NewCheckpointCompare(deps, "j1", "job", []int64{5, 4, 3}) },
 		"exceptions":     func() Model { return NewExceptions(deps, "j1", "job") },
 		"tmlogfiles":     func() Model { return NewTMLogFiles(deps, "tm1") },
 		"metrics":        func() Model { return NewMetrics(deps, model.JobOverview{JID: "j1", Name: "job"}) },

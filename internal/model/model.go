@@ -312,6 +312,29 @@ type CheckpointConfig struct {
 	} `json:"externalization"`
 }
 
+// CheckpointTaskStats is one vertex's share of a checkpoint (the "tasks"
+// map of GET /jobs/:jid/checkpoints/details/:id).
+type CheckpointTaskStats struct {
+	StateSize         int64 `json:"state_size"`
+	CheckpointedSize  int64 `json:"checkpointed_size"`
+	EndToEndDuration  int64 `json:"end_to_end_duration"`
+	AlignmentBuffered int64 `json:"alignment_buffered"`
+	PersistedData     int64 `json:"persisted_data"`
+	NumSubtasks       int   `json:"num_subtasks"`
+	NumAcknowledged   int   `json:"num_acknowledged_subtasks"`
+}
+
+// CheckpointDetail is GET /jobs/:jid/checkpoints/details/:id.
+type CheckpointDetail struct {
+	ID               int64                          `json:"id"`
+	Status           string                         `json:"status"`
+	IsSavepoint      bool                           `json:"is_savepoint"`
+	TriggerTimestamp int64                          `json:"trigger_timestamp"`
+	StateSize        int64                          `json:"state_size"`
+	EndToEndDuration int64                          `json:"end_to_end_duration"`
+	Tasks            map[string]CheckpointTaskStats `json:"tasks"`
+}
+
 // CheckpointSubtask is one subtask row of
 // GET /jobs/:jid/checkpoints/details/:id/subtasks/:vertexid.
 type CheckpointSubtask struct {
@@ -330,15 +353,6 @@ type CheckpointSubtask struct {
 	} `json:"alignment"`
 	StartDelay int64 `json:"start_delay"`
 	Unaligned  bool  `json:"unaligned_checkpoint"`
-}
-
-// CheckpointDetail is GET /jobs/:jid/checkpoints/details/:id (summary part).
-type CheckpointDetail struct {
-	ID     int64  `json:"id"`
-	Status string `json:"status"`
-	Tasks  map[string]struct {
-		StateSize int64 `json:"state_size"`
-	} `json:"tasks"`
 }
 
 // ExceptionEntry is one entry of the exception history.
