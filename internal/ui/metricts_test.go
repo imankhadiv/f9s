@@ -8,6 +8,7 @@ import (
 	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/pins"
+	"github.com/imankhadiv/f9s/internal/views"
 )
 
 func TestRecordCheckpointAddsNewestCompletedOnce(t *testing.T) {
@@ -67,5 +68,31 @@ func TestSamplePinsRecordsLivePinsOnly(t *testing.T) {
 	p, ok := ring.Last(metricts.Key{Scope: metricts.ScopePin, ID: pins.SeriesID(ps[0]), Metric: "value"})
 	if !ok || p.Value != 7 {
 		t.Fatalf("pin not recorded: %+v %v", p, ok)
+	}
+}
+
+func TestContextSwitchKeepsEachContextsHistory(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg := &config.Config{Contexts: map[string]config.Context{
+		"a": {URL: "http://localhost:1"}, "b": {URL: "http://localhost:2"}}}
+	k := metricts.Key{Scope: metricts.ScopeJob, ID: "job-a", Metric: metricts.CkptSize}
+
+	app := New(cfg, "a", 2, nil, nil)
+	app.metrics.Add(k, metricts.Point{Time: time.Now(), Value: 1})
+	app.Update(views.SwitchContextMsg{Name: "b"})
+	if _, ok := app.metrics.Last(k); ok {
+		t.Fatal("context b must not show context a's series")
+	}
+	// a late sample from context a must not prune or pollute b
+	bk := metricts.Key{Scope: metricts.ScopeJob, ID: "job-b", Metric: metricts.CkptSize}
+	app.metrics.Add(bk, metricts.Point{Time: time.Now(), Value: 2})
+	app.Update(sentinelMsg{ctx: "a", liveJIDs: map[string]bool{}, authoritative: true})
+	if _, ok := app.metrics.Last(bk); !ok {
+		t.Fatal("a stale sample from the previous context pruned the new one")
+	}
+
+	back := New(cfg, "a", 2, nil, nil)
+	if p, ok := back.metrics.Last(k); !ok || p.Value != 1 {
+		t.Fatal("context a's history was not saved under a on switch")
 	}
 }

@@ -575,6 +575,7 @@ type jobHealth struct {
 }
 
 type sentinelMsg struct {
+	ctx           string // context the sample was taken on
 	samples       []vertexSample
 	jobs          []jobHealth
 	liveJIDs      map[string]bool
@@ -594,7 +595,7 @@ func (a *App) collectSentinel() tea.Cmd {
 	return func() tea.Msg {
 		jobs, err := cl.Jobs()
 		if err != nil {
-			return sentinelMsg{}
+			return sentinelMsg{ctx: ctxName}
 		}
 		var out []vertexSample
 		var health []jobHealth
@@ -679,7 +680,7 @@ func (a *App) collectSentinel() tea.Cmd {
 		}
 		liveTMs := fleet.Collect(cl, ring, now)
 		samplePins(cl, ring, pins.LoadOrDefault(ctxName), live, now)
-		return sentinelMsg{samples: out, jobs: health, liveJIDs: live, liveTMs: liveTMs, authoritative: true}
+		return sentinelMsg{ctx: ctxName, samples: out, jobs: health, liveJIDs: live, liveTMs: liveTMs, authoritative: true}
 	}
 }
 
@@ -902,6 +903,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sentinelMsg:
 		a.sentRunning = false
+		if msg.ctx != "" && msg.ctx != a.contextName {
+			// sampled on the cluster we just switched away from: its job/TM ids
+			// would prune (and its alerts would pollute) the new context
+			return a, nil
+		}
 		if a.sentTicks++; a.sentTicks%ringSaveEvery == 0 {
 			a.SaveState()
 		}
@@ -1144,6 +1150,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return a, a.setFlash("context "+msg.Name+" not found", true)
 		}
+		a.SaveState() // under the OLD context name: keep its history for next time
 		a.contextName = msg.Name
 		a.savepointDir = cctx.SavepointDir
 		a.cl = client.New(cctx)
@@ -1152,7 +1159,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.connected, a.everSeen = false, false
 		a.sent = sentinel.NewPersistent(msg.Name) // fresh watchdog for the new cluster
 		a.watchStore = watch.NewStore()
-		a.SaveState() // keep the old cluster's history for next time
 		a.metrics = metricts.New(metricts.BufferLen)
 		a.metrics.Load(metricts.DataPath(msg.Name), ringMaxAge, time.Now())
 		deps := a.deps()
