@@ -294,12 +294,23 @@ pair:
 
 ```yaml
 colors:
-  accent: "#7AA2F7"
+  accent: "#E6526F"
   ok: {light: "#004400", dark: "#88FF88"}
   warn: "214"
+  flow: {light: "#2563EB", dark: "#5B9BF5"}
+  state: {light: "#734591", dark: "#BF73F2"}
+  backpressure: {light: "#171717", dark: "#E5EAF4"}
 ```
 
-Tokens: `accent`, `ok`, `warn`, `error`, `dim`, `selectionFg`, `selectionBg`.
+Tokens: `accent`, `ok`, `warn`, `error`, `dim`, `selectionFg`, `selectionBg`,
+`flow`, `state`, `backpressure`. The defaults use Apache Flink's coral,
+orange, purple, and neutral palette; graph colors keep Flink's operational
+meaning of blue flow, red-hot work, and dark backpressure.
+
+f9s uses the terminal's font rather than choosing one itself. For aligned
+gauges and graph boxes, use a modern monospace font with complete box-drawing
+glyphs, such as JetBrains Mono, IBM Plex Mono, or Iosevka. Ligatures are
+optional; f9s never relies on them for meaning.
 
 ## Plugins
 

@@ -19,36 +19,52 @@ const (
 // The palette is a set of semantic tokens (DESIGN.md #14). Defaults adapt
 // to light/dark terminals; skin.yaml overrides them via LoadSkin.
 var (
-	coral lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#D13A57", Dark: "#FF6F87"}
-	dim   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#6B6472", Dark: "#948CA0"}
-	green lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#177A3C", Dark: "#4ADE80"}
-	amber lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#9A6A12", Dark: "#FBBF24"}
-	red   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#CC2E28", Dark: "#FF6B60"}
-	selFg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#1B1118", Dark: "#FFF0F2"}
-	selBg lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#F5C9D2", Dark: "#5C2E3C"}
-	blue  lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#63A8FF"}
+	coral        lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#8A3143", Dark: "#E6526F"}
+	dim          lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#545454", Dark: "#B9BFC7"}
+	green        lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#2E8B57", Dark: "#5FBF8B"}
+	amber        lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#93601D", Dark: "#F5A030"}
+	red          lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#B3372E", Dark: "#E06055"}
+	selFg        lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#171717", Dark: "#E5EAF4"}
+	selBg        lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#E5EAF4", Dark: "#323232"}
+	flow         lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#5B9BF5"}
+	state        lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#734591", Dark: "#BF73F2"}
+	backpressure lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "#171717", Dark: "#E5EAF4"}
 )
 
 // Raw palette-color accessors, for callers that need a TerminalColor (e.g. a
 // box border) rather than a Style.
-func GreenColor() lipgloss.TerminalColor { return green }
-func AmberColor() lipgloss.TerminalColor { return amber }
-func RedColor() lipgloss.TerminalColor   { return red }
-func BlueColor() lipgloss.TerminalColor  { return blue }
-func DimColor() lipgloss.TerminalColor   { return dim }
+func GreenColor() lipgloss.TerminalColor        { return green }
+func AmberColor() lipgloss.TerminalColor        { return amber }
+func RedColor() lipgloss.TerminalColor          { return red }
+func DimColor() lipgloss.TerminalColor          { return dim }
+func AccentColor() lipgloss.TerminalColor       { return coral }
+func FlowColor() lipgloss.TerminalColor         { return flow }
+func StateColor() lipgloss.TerminalColor        { return state }
+func BackpressureColor() lipgloss.TerminalColor { return backpressure }
 
-// BlueText styles healthy/steady operator boxes (Flink's blue).
-func BlueText() lipgloss.Style { return lipgloss.NewStyle().Foreground(blue) }
+// FlowText styles idle/steady operators using Flink's operational blue.
+func FlowText() lipgloss.Style { return lipgloss.NewStyle().Foreground(flow) }
+
+// StateText styles stateful activity such as checkpoints and pending rescale.
+func StateText() lipgloss.Style { return lipgloss.NewStyle().Foreground(state) }
+
+// BackpressureText styles operators blocked by downstream work. Flink uses
+// black for this state; the dark-terminal variant becomes a high-contrast
+// neutral so it remains visible.
+func BackpressureText() lipgloss.Style { return lipgloss.NewStyle().Foreground(backpressure) }
 
 // tokenTargets maps skin.yaml token names onto the palette.
 var tokenTargets = map[string]*lipgloss.TerminalColor{
-	"accent":      &coral,
-	"dim":         &dim,
-	"ok":          &green,
-	"warn":        &amber,
-	"error":       &red,
-	"selectionFg": &selFg,
-	"selectionBg": &selBg,
+	"accent":       &coral,
+	"dim":          &dim,
+	"ok":           &green,
+	"warn":         &amber,
+	"error":        &red,
+	"selectionFg":  &selFg,
+	"selectionBg":  &selBg,
+	"flow":         &flow,
+	"state":        &state,
+	"backpressure": &backpressure,
 }
 
 // Header styles the top cluster bar.

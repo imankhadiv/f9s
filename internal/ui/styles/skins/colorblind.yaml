@@ -9,3 +9,6 @@ colors:
   error: { light: "#C1440E", dark: "#F26430" }
   selectionFg: { light: "#101018", dark: "#F5F5FA" }
   selectionBg: { light: "#D7E3F0", dark: "#31455C" }
+  flow: { light: "#0072B2", dark: "#56B4E9" }
+  state: { light: "#7A4E00", dark: "#F0E442" }
+  backpressure: { light: "#111111", dark: "#F5F5FA" }
