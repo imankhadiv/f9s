@@ -8,7 +8,7 @@ import (
 )
 
 const liveDeployment = `{
-  "metadata": {"namespace": "stream", "name": "orders", "generation": 4},
+  "metadata": {"namespace": "stream", "name": "orders", "generation": 4, "resourceVersion": "8812"},
   "spec": {"job": {"parallelism": 2, "upgradeMode": "savepoint", "savepointTriggerNonce": 5},
            "flinkConfiguration": {"pipeline.jobvertex-parallelism-overrides": "bc764cd8ddf7a0cff126f51c16239658:3"}},
   "status": {"lifecycleState": "STABLE", "observedGeneration": 4,
@@ -58,7 +58,7 @@ func TestPatchDryRunsThenApplies(t *testing.T) {
 			t.Fatalf("call not bound to the context: %v", c)
 		}
 	}
-	if !strings.Contains(apply, `--type merge -p {"spec":{"job":{"parallelism":4}}}`) {
+	if !strings.Contains(apply, `--type merge -p {"metadata":{"resourceVersion":"8812"},"spec":{"job":{"parallelism":4}}}`) {
 		t.Fatalf("apply = %s", apply)
 	}
 }
@@ -135,5 +135,34 @@ func TestMergeOverride(t *testing.T) {
 	}
 	if _, err := MergeOverride("", "Map", 2); err == nil {
 		t.Fatal("a vertex name is not a vertex id")
+	}
+}
+
+func TestPatchRejectsFlagLikeNames(t *testing.T) {
+	calls := fakeKubectl(t, liveDeployment, false)
+	for _, bad := range []string{"--all", "-n", "Orders", "a b", ""} {
+		if err := Patch("prod", KindDeployment, "stream", bad, RestartPatch()); err == nil {
+			t.Errorf("name %q accepted", bad)
+		}
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("invalid names must never reach kubectl: %v", *calls)
+	}
+}
+
+func TestPatchExplainsConcurrentEdit(t *testing.T) {
+	t.Cleanup(SetRunner(func(_ context.Context, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, " get "):
+			return []byte(liveDeployment), nil
+		case strings.Contains(joined, "--dry-run"):
+			return nil, nil
+		}
+		return nil, &kubectlErr{`Operation cannot be fulfilled on flinkdeployments "orders": the object has been modified; please apply your changes to the latest version`}
+	}))
+	err := Patch("prod", KindDeployment, "stream", "orders", RestartPatch())
+	if err == nil || !strings.Contains(err.Error(), "changed while f9s was preparing") {
+		t.Fatalf("err = %v", err)
 	}
 }

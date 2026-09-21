@@ -55,6 +55,7 @@ type FlinkDeployment struct {
 	FlinkConfig map[string]string // spec.flinkConfiguration, flattened to dotted keys
 
 	Generation         int64 // metadata.generation
+	ResourceVersion    string
 	ObservedGeneration int64 // status.observedGeneration (0 = operator doesn't report it)
 	ReconcileState     string
 	ReconciledAt       time.Time
@@ -92,6 +93,7 @@ type FlinkSessionJob struct {
 	Error              string
 	ErrorFull          string
 	Generation         int64
+	ResourceVersion    string
 	ObservedGeneration int64
 	ReconcileState     string
 	ReconciledAt       time.Time
@@ -127,9 +129,10 @@ type Pod struct {
 }
 
 type meta struct {
-	Namespace  string `json:"namespace"`
-	Name       string `json:"name"`
-	Generation int64  `json:"generation"`
+	Namespace       string `json:"namespace"`
+	Name            string `json:"name"`
+	Generation      int64  `json:"generation"`
+	ResourceVersion string `json:"resourceVersion"`
 }
 
 type reconcile struct {
@@ -217,6 +220,7 @@ func Parse(data []byte) ([]FlinkDeployment, error) {
 			Job:                it.Spec.Job,
 			FlinkConfig:        FlattenConfig(it.Spec.FlinkConfiguration),
 			Generation:         it.Metadata.Generation,
+			ResourceVersion:    it.Metadata.ResourceVersion,
 			ObservedGeneration: st.ObservedGeneration,
 			ReconcileState:     st.ReconciliationStatus.State,
 			ReconciledAt:       millis(st.ReconciliationStatus.ReconciliationTimestamp),
@@ -273,6 +277,7 @@ func ParseSessionJobs(data []byte) ([]FlinkSessionJob, error) {
 			Error:              firstLine(st.Error),
 			ErrorFull:          st.Error,
 			Generation:         it.Metadata.Generation,
+			ResourceVersion:    it.Metadata.ResourceVersion,
 			ObservedGeneration: st.ObservedGeneration,
 			ReconcileState:     st.ReconciliationStatus.State,
 			ReconciledAt:       millis(st.ReconciliationStatus.ReconciliationTimestamp),

@@ -24,6 +24,7 @@ type Resource struct {
 	ReconcileState string
 	Drifting       bool
 	Generation     int64
+	Version        string // metadata.resourceVersion at read time
 	Job            *JobSpec
 	FlinkConfig    map[string]string
 	LastSavepoint  string
@@ -33,6 +34,9 @@ type Resource struct {
 func Get(kubeContext, kind, namespace, name string) (Resource, error) {
 	if kind != KindDeployment && kind != KindSessionJob {
 		return Resource{}, fmt.Errorf("unsupported kind %q", kind)
+	}
+	if ValidName(namespace) != nil || ValidName(name) != nil {
+		return Resource{}, fmt.Errorf("invalid resource %q/%q", namespace, name)
 	}
 	data, err := get(kubeContext, kind, "get", kind, name, "-n", namespace, "-o", "json")
 	if err != nil {
@@ -56,7 +60,7 @@ func Get(kubeContext, kind, namespace, name string) (Resource, error) {
 			conf = FlattenConfig(raw.Spec.FlinkConfiguration)
 		}
 		return Resource{Kind: kind, Lifecycle: s.Lifecycle, ReconcileState: s.ReconcileState, Drifting: drift,
-			Generation: s.Generation, Job: s.Job, FlinkConfig: conf}, nil
+			Generation: s.Generation, Version: s.ResourceVersion, Job: s.Job, FlinkConfig: conf}, nil
 	}
 	ds, err := Parse(wrapped)
 	if err != nil || len(ds) != 1 {
@@ -65,7 +69,7 @@ func Get(kubeContext, kind, namespace, name string) (Resource, error) {
 	d := ds[0]
 	drift, _ := d.Drift()
 	r := Resource{Kind: kind, Lifecycle: d.Lifecycle, ReconcileState: d.ReconcileState, Drifting: drift,
-		Generation: d.Generation, Job: d.Job, FlinkConfig: d.FlinkConfig}
+		Generation: d.Generation, Version: d.ResourceVersion, Job: d.Job, FlinkConfig: d.FlinkConfig}
 	if d.LastSavepoint != nil {
 		r.LastSavepoint = d.LastSavepoint.Location
 	}
@@ -86,17 +90,42 @@ func (r Resource) Busy() string {
 	return ""
 }
 
-// Patch applies a JSON merge patch to an operator resource. It refuses while
-// the operator is busy, validates the patch with a server-side dry run (so
-// schema errors — e.g. a field this operator version doesn't know — surface
-// before anything changes), then applies it.
+// Patch applies a JSON merge patch to an operator resource. See PatchFrom.
 func Patch(kubeContext, kind, namespace, name string, patch map[string]any) error {
+	return PatchFrom(kubeContext, kind, namespace, name, func(Resource) (map[string]any, error) { return patch, nil })
+}
+
+// PatchFrom reads the resource ONCE, refuses while the operator is busy,
+// builds the patch from that read, pins it to the read's resourceVersion (a
+// concurrent edit makes the API server answer 409 instead of being silently
+// overwritten), validates it with a server-side dry run (schema errors — e.g.
+// a field this operator version doesn't know — surface before anything
+// changes), then applies it.
+func PatchFrom(kubeContext, kind, namespace, name string, build func(Resource) (map[string]any, error)) error {
+	if err := ValidName(namespace); err != nil {
+		return fmt.Errorf("namespace: %w", err)
+	}
+	if err := ValidName(name); err != nil {
+		return fmt.Errorf("name: %w", err)
+	}
 	res, err := Get(kubeContext, kind, namespace, name)
 	if err != nil {
 		return err
 	}
 	if why := res.Busy(); why != "" {
 		return fmt.Errorf("refusing to patch %s/%s: %s", namespace, name, why)
+	}
+	patch, err := build(res)
+	if err != nil {
+		return err
+	}
+	if res.Version != "" {
+		pinned := make(map[string]any, len(patch)+1)
+		for k, v := range patch {
+			pinned[k] = v
+		}
+		pinned["metadata"] = map[string]any{"resourceVersion": res.Version}
+		patch = pinned
 	}
 	body, err := json.Marshal(patch)
 	if err != nil {
@@ -106,8 +135,21 @@ func Patch(kubeContext, kind, namespace, name string, patch map[string]any) erro
 	if _, err := get(kubeContext, kind, append(args, "--dry-run=server")...); err != nil {
 		return fmt.Errorf("server dry run rejected the change: %w", err)
 	}
-	_, err = get(kubeContext, kind, args...)
+	if _, err = get(kubeContext, kind, args...); err != nil && strings.Contains(err.Error(), "the object has been modified") {
+		return fmt.Errorf("%s/%s changed while f9s was preparing the patch — nothing applied; review and retry", namespace, name)
+	}
 	return err
+}
+
+var dns1123 = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
+
+// ValidName checks a Kubernetes namespace/object name (DNS-1123 subdomain),
+// so a value from an AI or MCP client can never reach kubectl as a flag.
+func ValidName(s string) error {
+	if len(s) == 0 || len(s) > 253 || !dns1123.MatchString(s) {
+		return fmt.Errorf("%q is not a valid Kubernetes name", s)
+	}
+	return nil
 }
 
 // nonce returns a value different from the current one (the operator acts

@@ -36,6 +36,12 @@ func (r *Registry) kubeTarget(args map[string]string) (kind, ns, name string, er
 	if ns == "" || name == "" {
 		return "", "", "", fmt.Errorf("namespace and name are required")
 	}
+	if err := kube.ValidName(ns); err != nil {
+		return "", "", "", err
+	}
+	if err := kube.ValidName(name); err != nil {
+		return "", "", "", err
+	}
 	return kind, ns, name, nil
 }
 
@@ -50,15 +56,13 @@ func (r *Registry) patchTool(name, desc, risk string, extra []Param,
 			if err != nil {
 				return "", err
 			}
-			res, err := kube.Get(r.kube, kind, ns, nm)
+			var done string
+			err = kube.PatchFrom(r.kube, kind, ns, nm, func(res kube.Resource) (map[string]any, error) {
+				patch, d, err := build(res, args)
+				done = d
+				return patch, err
+			})
 			if err != nil {
-				return "", err
-			}
-			patch, done, err := build(res, args)
-			if err != nil {
-				return "", err
-			}
-			if err := kube.Patch(r.kube, kind, ns, nm, patch); err != nil {
 				return "", err
 			}
 			return fmt.Sprintf("%s/%s: %s — the operator reconciles it shortly (watch RECONCILE in the operator view)", ns, nm, done), nil
@@ -139,8 +143,8 @@ func (r *Registry) kubeTools() []Tool {
 				return kube.RedeployPatch(path), "redeploy from " + path + " requested", nil
 			}),
 		r.patchTool("set_parallelism_override",
-			"Pin ONE vertex's parallelism durably via pipeline.jobvertex-parallelism-overrides in the CR (survives upgrades and takes precedence over the autoscaler). parallelism 0 removes the pin.",
-			"Pins a vertex's parallelism in the CR (durable; overrides the autoscaler).\nThe operator applies it with an upgrade/rescale of the job.",
+			"Pin ONE vertex's parallelism via pipeline.jobvertex-parallelism-overrides in the CR (survives upgrades). While the operator autoscaler is enabled it manages this key and may replace the pin — turn the autoscaler off for a durable pin. parallelism 0 removes the pin.",
+			"Pins a vertex's parallelism in the CR; the operator applies it with an\nupgrade/rescale of the job. While the autoscaler is enabled it may\nreplace the pin — switch it off (o) for a durable one.",
 			[]Param{
 				{Name: "vertex", Description: "the vertex id (32 hex chars)", Required: true},
 				{Name: "parallelism", Description: "parallelism to pin; 0 removes the pin", Required: true},

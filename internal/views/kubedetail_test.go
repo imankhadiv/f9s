@@ -141,8 +141,8 @@ func TestKubeDetailActionsProposeOperatorTools(t *testing.T) {
 		}
 		switch k {
 		case "b":
-			if pm.Input == nil || pm.Input.Default != "s3://sp/9" {
-				t.Fatalf("redeploy must prefill the last savepoint: %+v", pm.Input)
+			if pm.Input == nil || pm.Input.Default != "" || !strings.Contains(pm.Input.Label, "s3://sp/9") {
+				t.Fatalf("redeploy must NOT prefill (hint only): %+v", pm.Input)
 			}
 		case "o":
 			if pm.Args["enabled"] != "false" {

@@ -104,12 +104,14 @@ func (d *KubeDetail) action(k string) tea.Cmd {
 		return propose(d.deps, "k8s_set_parallelism", label, args,
 			&ProposalInput{Arg: "parallelism", Label: "new job parallelism", Default: fmt.Sprint(job.Parallelism)})
 	case k == "b" && job != nil:
-		def := ""
+		// Deliberately not prefilled: this discards the job's current state, so
+		// the path must be typed (or pasted), never just confirmed with enter.
+		hint := "savepoint path to restore from (current state is DISCARDED)"
 		if dep := d.entry.deploy; dep != nil && dep.LastSavepoint != nil {
-			def = dep.LastSavepoint.Location
+			hint += " — last: " + dep.LastSavepoint.Location
 		}
 		return propose(d.deps, "k8s_redeploy_from_savepoint", label, args,
-			&ProposalInput{Arg: "savepoint_path", Label: "savepoint path to restore from", Default: def})
+			&ProposalInput{Arg: "savepoint_path", Label: hint})
 	case k == "o" && app:
 		next := "true"
 		if AutoscalerMode(d.entry.deploy.FlinkConfig) != "off" {
