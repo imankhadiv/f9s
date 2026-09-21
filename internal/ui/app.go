@@ -81,6 +81,7 @@ type pluginDoneMsg struct {
 }
 
 type proposalDoneMsg struct {
+	source string
 	tool   string
 	args   map[string]string
 	output string
@@ -404,7 +405,7 @@ func (a *App) runNextInvestigation() tea.Cmd {
 	a.invRunning = true
 	cl := a.cl
 	aiCfg := a.cfg.Contexts[a.contextName].AI
-	reg := tools.New(cl, a.contextName)
+	reg := a.registry()
 	anonymize := aiCfg.AnonymizeOn()
 	ctxName := a.contextName
 	return func() tea.Msg {
@@ -743,18 +744,25 @@ func (a *App) startAction(kind views.ActionKind, jid, name, dir string) tea.Cmd 
 // startProposal executes a human-confirmed agent proposal via the real
 // tool registry.
 func (a *App) startProposal(msg views.ProposalMsg) tea.Cmd {
-	reg := tools.New(a.cl, a.contextName)
+	reg := a.registry()
+	src := msg.AuditSource()
 	return func() tea.Msg {
 		t, ok := reg.Get(msg.Tool)
 		if !ok {
-			return proposalDoneMsg{tool: msg.Tool, args: msg.Args, err: fmt.Errorf("unknown tool")}
+			return proposalDoneMsg{source: src, tool: msg.Tool, args: msg.Args, err: fmt.Errorf("unknown tool")}
 		}
 		out, err := t.Run(context.Background(), msg.Args)
 		if len(out) > 120 {
 			out = out[:120] + "…"
 		}
-		return proposalDoneMsg{tool: msg.Tool, args: msg.Args, output: out, err: err}
+		return proposalDoneMsg{source: src, tool: msg.Tool, args: msg.Args, output: out, err: err}
 	}
+}
+
+// registry builds the tool registry for the active context, with the
+// operator tools bound to its kubeContext (if any).
+func (a *App) registry() *tools.Registry {
+	return tools.New(a.cl, a.contextName, tools.WithKube(a.cfg.Contexts[a.contextName].KubeContext))
 }
 
 // startRescale verifies the adaptive-scheduler precondition, then applies
@@ -1019,12 +1027,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// bypasses readOnlyGuard — gate it here so a read-only context can
 		// never execute an AI-proposed action, confirmed or not.
 		if a.cfg.Contexts[a.contextName].ReadOnly {
-			return a, a.setFlash("[RO] context is read-only — AI proposals cannot be executed", true)
+			return a, a.setFlash("[RO] context is read-only — mutating actions cannot be executed", true)
 		}
 		// Record the AI-surfaced call with its REAL target and params before the
 		// human decides — so the forensic trail shows what was proposed even if
 		// it is declined (a "proposed" line with no matching execute = declined).
-		audit.Append(audit.Record{Context: a.contextName, Action: msg.Tool, Target: msg.Args["jid"], Params: msg.Args, Result: "proposed", Source: "ai-proposal"})
+		audit.Append(audit.Record{Context: a.contextName, Action: msg.Tool, Target: tools.TargetOf(msg.Args), Params: msg.Args, Result: "proposed", Source: msg.AuditSource()})
 		a.modal = newProposalModal(msg, a.mode())
 		return a, nil
 
@@ -1033,9 +1041,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			res = msg.err.Error()
 		}
-		audit.Append(audit.Record{Context: a.contextName, Action: msg.tool, Target: msg.args["jid"], Params: msg.args, Result: res, Source: "ai-proposal"})
+		audit.Append(audit.Record{Context: a.contextName, Action: msg.tool, Target: tools.TargetOf(msg.args), Params: msg.args, Result: res, Source: msg.source})
 		if msg.err != nil {
-			return a, a.setFlash("proposal "+msg.tool+": "+msg.err.Error(), true)
+			return a, a.setFlash(msg.tool+": "+msg.err.Error(), true)
 		}
 		return a, tea.Batch(a.setFlash("applied "+msg.tool+" ✓ — "+msg.output, false), a.top().Refresh())
 
@@ -1224,7 +1232,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if m.proposal != nil {
-				return a, a.startProposal(*m.proposal)
+				p := *m.proposal
+				if in := p.Input; in != nil {
+					args := make(map[string]string, len(p.Args)+1)
+					for k, v := range p.Args {
+						args[k] = v
+					}
+					args[in.Arg] = strings.TrimSpace(m.input.Value())
+					p.Args = args
+				}
+				return a, a.startProposal(p)
 			}
 			if m.rescale != nil {
 				p, err := strconv.Atoi(strings.TrimSpace(m.input.Value()))

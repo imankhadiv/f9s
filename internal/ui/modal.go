@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/imankhadiv/f9s/internal/model"
+	"github.com/imankhadiv/f9s/internal/tools"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
 	"github.com/imankhadiv/f9s/internal/views"
 )
@@ -56,7 +57,16 @@ func newProposalModal(msg views.ProposalMsg, mi model.ModeInfo) *modal {
 	if jid := msg.Args["jid"]; jid != "" && msg.Job != "" && jid != msg.Job {
 		sub = "⚠ targets " + jid + " (not the focused " + msg.Job + ")\n" + sub
 	}
-	return &modal{jid: sub, name: msg.Job, proposal: &msg, mode: mi}
+	m := &modal{jid: sub, name: msg.Job, proposal: &msg, mode: mi}
+	if in := msg.Input; in != nil {
+		m.needsInput = true
+		m.input = textinput.New()
+		m.input.Prompt = ""
+		m.input.CharLimit = 300
+		m.input.SetValue(in.Default)
+		m.input.Focus()
+	}
+	return m
 }
 
 // renderArgs formats tool args deterministically (jid first, then sorted) so
@@ -107,6 +117,9 @@ func newModal(kind views.ActionKind, jid, name, defaultDir string, mi model.Mode
 
 func (m *modal) verb() string {
 	if m.proposal != nil {
+		if m.proposal.Source == "tui" {
+			return "confirm: " + m.proposal.Tool
+		}
 		return "agent proposal: " + m.proposal.Tool
 	}
 	if m.rescale != nil {
@@ -138,7 +151,12 @@ func (m *modal) consequence() string {
 		case "rescale_vertex":
 			risk = "Rescales a vertex via FLIP-291. The job RESTARTS from its latest\ncheckpoint. Requires jobmanager.scheduler: adaptive."
 		default:
-			risk = "Mutating action proposed by the AI."
+			if risk = tools.RiskOf(m.proposal.Tool); risk == "" {
+				risk = "Mutating action proposed by the AI."
+			}
+		}
+		if m.proposal.Source == "tui" {
+			return "NOT yet executed.\n\n" + risk
 		}
 		return "AI-proposed — NOT yet executed.\n\n" + risk + "\n\nConfirm to run it now."
 	}
@@ -193,6 +211,9 @@ func (m *modal) view(width, height int) string {
 		label := "target dir (empty = cluster default)"
 		if m.rescale != nil {
 			label = "new parallelism"
+		}
+		if m.proposal != nil && m.proposal.Input != nil {
+			label = m.proposal.Input.Label
 		}
 		body += styles.Dim().Render(label) + "\n" +
 			m.input.View() + "\n\n" +

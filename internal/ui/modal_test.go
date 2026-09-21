@@ -98,3 +98,30 @@ func TestProposalCancelCopyIsModeAware(t *testing.T) {
 		t.Errorf("application-mode AI cancel must warn of teardown, got %q", got)
 	}
 }
+
+// An operator-initiated tool gets the registry's risk copy and never the
+// "AI-proposed" framing; an Input turns the dialog into a prompt.
+func TestTUIProposalModalUsesRegistryRiskAndInput(t *testing.T) {
+	m := newProposalModal(views.ProposalMsg{
+		Tool:   "dispose_savepoint",
+		Args:   map[string]string{"savepoint_path": "s3://sp/1"},
+		Source: "tui",
+		Input:  &views.ProposalInput{Arg: "x", Label: "why", Default: "d"},
+	}, model.ModeInfo{})
+	if m.verb() != "confirm: dispose_savepoint" {
+		t.Errorf("verb = %q", m.verb())
+	}
+	c := m.consequence()
+	if strings.Contains(c, "AI-proposed") || !strings.Contains(c, "PERMANENTLY DELETES") {
+		t.Errorf("consequence = %q", c)
+	}
+	if !m.needsInput || m.input.Value() != "d" {
+		t.Error("Input must prompt with its default")
+	}
+	if !strings.Contains(m.view(100, 30), "why") {
+		t.Error("input label missing from the dialog")
+	}
+	if !strings.Contains(m.jid, "savepoint_path=s3://sp/1") {
+		t.Errorf("dialog must show the exact args, got %q", m.jid)
+	}
+}

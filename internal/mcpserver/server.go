@@ -25,7 +25,7 @@ func newServer(cfg *config.Config, contextName, version string, allowWrites bool
 		return nil, fmt.Errorf("context %q has readOnly: true; refusing --allow-writes", name)
 	}
 	cl := client.New(cctx)
-	registry := tools.New(cl, name)
+	registry := tools.New(cl, name, tools.WithKube(cctx.KubeContext))
 
 	s := server.NewMCPServer("f9s", version,
 		server.WithInstructions(fmt.Sprintf(

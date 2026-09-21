@@ -17,6 +17,7 @@ import (
 	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/plugin"
 	"github.com/imankhadiv/f9s/internal/sentinel"
+	"github.com/imankhadiv/f9s/internal/tools"
 	"github.com/imankhadiv/f9s/internal/watch"
 )
 
@@ -96,6 +97,46 @@ type ProposalMsg struct {
 	Tool string
 	Args map[string]string
 	Job  string
+	// Source is the audit source: "" means an AI proposal ("ai-proposal");
+	// views proposing a tool on the operator's behalf set "tui".
+	Source string
+	// Input, when set, asks for one argument in the confirm dialog.
+	Input *ProposalInput
+}
+
+// ProposalInput is one argument the confirm dialog collects.
+type ProposalInput struct {
+	Arg     string // args key the value is stored under
+	Label   string
+	Default string
+}
+
+// AuditSource resolves the proposal's audit source.
+func (p ProposalMsg) AuditSource() string {
+	if p.Source == "" {
+		return "ai-proposal"
+	}
+	return p.Source
+}
+
+// registryFor builds the tool registry for the view's context, with the
+// operator tools bound to its kubeContext (if any).
+func registryFor(deps Deps) *tools.Registry {
+	kc := ""
+	if deps.Cfg != nil {
+		kc = deps.Cfg.Contexts[deps.Ctx].KubeContext
+	}
+	return tools.New(deps.CL, deps.Ctx, tools.WithKube(kc))
+}
+
+// propose asks the app to confirm a registry tool on the operator's behalf.
+func propose(deps Deps, tool, job string, args map[string]string, in *ProposalInput) tea.Cmd {
+	if g := readOnlyGuard(deps); g != nil {
+		return g
+	}
+	return func() tea.Msg {
+		return ProposalMsg{Tool: tool, Args: args, Job: job, Source: "tui", Input: in}
+	}
 }
 
 // RescaleMsg asks the root app to open the FLIP-291 rescale modal for a

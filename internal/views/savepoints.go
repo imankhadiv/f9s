@@ -45,6 +45,7 @@ func (s *Savepoints) Bindings() []key.Binding {
 	return []key.Binding{
 		binding("enter", "enter", "restore cmd"),
 		binding("y", "y", "copy path"),
+		binding("D", "D", "dispose savepoint"),
 		binding("/", "/", "filter"),
 		binding("esc", "esc", "back"),
 	}
@@ -94,6 +95,12 @@ func (s *Savepoints) Update(msg tea.Msg) (Model, tea.Cmd) {
 				_, _ = osc52.New(e.Path).WriteTo(os.Stderr)
 				return s, flash("savepoint path copied to clipboard")
 			}
+		case "D":
+			e, ok := s.selectedEntry()
+			if !ok || (e.Action != "savepoint" && e.Action != "stop") || e.Path == "" {
+				return s, flashErrV("select a savepoint row (savepoint / stop) to dispose")
+			}
+			return s, propose(s.deps, "dispose_savepoint", e.Job, map[string]string{"savepoint_path": e.Path}, nil)
 		default:
 			s.tbl.Update(msg)
 		}
@@ -101,11 +108,18 @@ func (s *Savepoints) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return s, nil
 }
 
+// selectedEntry is the row under the cursor. A filter that hides every row
+// selects nothing (the table would otherwise report row 0, which is not on
+// screen — unacceptable for a destructive action like dispose).
 func (s *Savepoints) selectedEntry() (ledger.Entry, bool) {
-	if len(s.entries) == 0 {
+	if len(s.entries) == 0 || s.tbl.Len() == 0 {
 		return ledger.Entry{}, false
 	}
-	return s.entries[s.tbl.Cursor()], true
+	i := s.tbl.Cursor()
+	if i < 0 || i >= len(s.entries) {
+		return ledger.Entry{}, false
+	}
+	return s.entries[i], true
 }
 
 func (s *Savepoints) View(width, height int) string {

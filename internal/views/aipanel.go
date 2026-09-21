@@ -13,7 +13,6 @@ import (
 	"github.com/imankhadiv/f9s/internal/ai"
 	"github.com/imankhadiv/f9s/internal/analyze"
 	"github.com/imankhadiv/f9s/internal/invlog"
-	"github.com/imankhadiv/f9s/internal/tools"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
 )
 
@@ -136,7 +135,7 @@ func (p *AIPanel) send(question string) tea.Cmd {
 
 	go func() {
 		defer close(ch)
-		reg := tools.New(deps.CL, deps.Ctx)
+		reg := registryFor(deps)
 		var seed strings.Builder
 		seed.WriteString("## Where the operator is\n")
 		if pc.Label != "" {

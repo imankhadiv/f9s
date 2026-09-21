@@ -15,7 +15,6 @@ import (
 	"github.com/imankhadiv/f9s/internal/incident"
 	"github.com/imankhadiv/f9s/internal/invlog"
 	"github.com/imankhadiv/f9s/internal/runbook"
-	"github.com/imankhadiv/f9s/internal/tools"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
 )
 
@@ -78,7 +77,7 @@ func (v *Investigate) Init() tea.Cmd {
 	cl := v.deps.CL
 	jid, name := v.jid, v.name
 	agent := v.agent
-	reg := tools.New(cl, v.deps.Ctx)
+	reg := registryFor(v.deps)
 	anonymize := v.deps.Cfg.Contexts[v.deps.Ctx].AI.AnonymizeOn()
 	ch := v.events
 	ctxName := v.deps.Ctx

@@ -17,7 +17,6 @@ import (
 	"github.com/imankhadiv/f9s/internal/incident"
 	"github.com/imankhadiv/f9s/internal/invlog"
 	"github.com/imankhadiv/f9s/internal/runbook"
-	"github.com/imankhadiv/f9s/internal/tools"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
 )
 
@@ -152,7 +151,7 @@ func (v *AskView) ask(question string) tea.Cmd {
 		defer close(ch)
 		cl := deps.CL
 		ctxName := deps.Ctx
-		reg := tools.New(cl, ctxName)
+		reg := registryFor(deps)
 
 		// Resolve grounding once, then reuse it for later questions.
 		if !v.grounded {

@@ -346,6 +346,22 @@ func (c *Client) SavepointStatus(jid, reqID string) (model.SavepointStatus, erro
 	return v, err
 }
 
+// DisposeSavepoint is POST /savepoint-disposal: the cluster deletes the
+// savepoint's files and metadata. Poll the trigger id with DisposalStatus.
+func (c *Client) DisposeSavepoint(path string) (string, error) {
+	var v model.TriggerResponse
+	err := c.send(http.MethodPost, "/savepoint-disposal", map[string]any{"savepoint-path": path}, &v)
+	return v.RequestID, err
+}
+
+// DisposalStatus is GET /savepoint-disposal/:triggerid. A completed disposal
+// has no location, so check Operation.FailureCause rather than Failed().
+func (c *Client) DisposalStatus(reqID string) (model.SavepointStatus, error) {
+	var v model.SavepointStatus
+	err := c.get("/savepoint-disposal/"+reqID, &v)
+	return v, err
+}
+
 // CancelJob is PATCH /jobs/:jid?mode=cancel.
 func (c *Client) CancelJob(jid string) error {
 	return c.send(http.MethodPatch, "/jobs/"+jid+"?mode=cancel", nil, nil)
