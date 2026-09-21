@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Pin identifies one pinned metric.
@@ -53,4 +54,32 @@ func Save(contextName string, ps []Pin) {
 		return
 	}
 	_ = os.WriteFile(path, data, 0o644)
+}
+
+// Defaults is the curated starter set a context gets until the user edits
+// its pins: cluster capacity and JobManager/TaskManager JVM health — the
+// numbers an operator glances at first.
+func Defaults() []Pin {
+	jm := "/jobmanager/metrics"
+	return []Pin{
+		{Display: "JM · running jobs", Path: jm, Keys: []string{"numRunningJobs"}},
+		{Display: "JM · TaskManagers", Path: jm, Keys: []string{"numRegisteredTaskManagers"}},
+		{Display: "JM · free slots", Path: jm, Keys: []string{"taskSlotsAvailable"}},
+		{Display: "JM · heap used", Path: jm, Keys: []string{"Status.JVM.Memory.Heap.Used"}},
+		{Display: "TMs · CPU load (avg)", Path: "/taskmanagers/metrics", Keys: []string{"Status.JVM.CPU.Load"}},
+	}
+}
+
+// LoadOrDefault returns the context's pins, or Defaults when it has never
+// saved any. An explicitly saved empty set stays empty.
+func LoadOrDefault(contextName string) []Pin {
+	if _, err := os.Stat(file(contextName)); os.IsNotExist(err) {
+		return Defaults()
+	}
+	return Load(contextName)
+}
+
+// SeriesID identifies a pin's series in the metric ring.
+func SeriesID(p Pin) string {
+	return p.Path + "|" + strings.Join(p.Keys, ",")
 }

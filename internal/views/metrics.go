@@ -13,6 +13,7 @@ import (
 
 	"github.com/imankhadiv/f9s/internal/analyze"
 	"github.com/imankhadiv/f9s/internal/metricdict"
+	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/pins"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
@@ -108,7 +109,7 @@ func NewMetrics(deps Deps, job model.JobOverview) *MetricsExplorer {
 	in.CharLimit = 80
 	in.Focus()
 	return &MetricsExplorer{deps: deps, job: job, input: in, lastSkew: -1,
-		pinned: pinsToItems(pins.Load(deps.Ctx)), pinVals: map[int]float64{}}
+		pinned: pinsToItems(pins.LoadOrDefault(deps.Ctx)), pinVals: map[int]float64{}}
 }
 
 func (m *MetricsExplorer) Title() string   { return "metrics" }
@@ -373,7 +374,7 @@ func (m *MetricsExplorer) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.cursor < len(m.matches) {
 				it := m.catalogs[m.scope][m.matches[m.cursor].Index]
 				m.inspect = &it
-				m.history = nil
+				m.history = m.pinHistory(it) // a pinned metric opens with its sampled trend
 				return m, m.Refresh()
 			}
 			return m, nil
@@ -407,6 +408,21 @@ func (m *MetricsExplorer) togglePin(it metricItem) tea.Cmd {
 	return tea.Batch(flash("pinned "+it.display), m.Refresh())
 }
 
+// pinKey is the ring series the sampler records a pin under.
+func pinKey(it metricItem) metricts.Key {
+	return metricts.Key{Scope: metricts.ScopePin, ID: pins.SeriesID(itemsToPins([]metricItem{it})[0]), Metric: "value"}
+}
+
+// pinHistory returns the sampled history of it if it is pinned (nil otherwise).
+func (m *MetricsExplorer) pinHistory(it metricItem) []float64 {
+	for _, p := range m.pinned {
+		if p.path == it.path && strings.Join(p.keys, ",") == strings.Join(it.keys, ",") {
+			return m.deps.Metrics.Values(pinKey(p))
+		}
+	}
+	return nil
+}
+
 // pinStrip renders the pinned tiles with their last-polled values.
 func (m *MetricsExplorer) pinStrip() string {
 	if len(m.pinned) == 0 {
@@ -425,7 +441,16 @@ func (m *MetricsExplorer) pinStrip() string {
 		if len(name) > 28 {
 			name = name[:27] + "…"
 		}
-		parts = append(parts, styles.Dim().Render(name+" ")+styles.OKText().Render(val))
+		if val == "…" { // not polled yet this session: fall back to the sampler's last value
+			if last, ok := m.deps.Metrics.Last(pinKey(p)); ok {
+				val = strconv.FormatFloat(last.Value, 'g', 4, 64)
+			}
+		}
+		tile := styles.Dim().Render(name+" ") + styles.OKText().Render(val)
+		if hist := m.deps.Metrics.Values(pinKey(p)); len(hist) >= 2 {
+			tile += " " + styles.Dim().Render(styles.Spark(tailN(hist, 12)))
+		}
+		parts = append(parts, tile)
 	}
 	return " ⚲ " + strings.Join(parts, styles.Dim().Render("  │  ")) + "\n"
 }

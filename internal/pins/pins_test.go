@@ -16,3 +16,21 @@ func TestPinsRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip lost data: %+v", got)
 	}
 }
+
+func TestLoadOrDefault(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if got := LoadOrDefault("fresh"); len(got) != len(Defaults()) || len(got) == 0 {
+		t.Fatalf("a fresh context gets the curated pins, got %d", len(got))
+	}
+	Save("cleared", []Pin{})
+	if got := LoadOrDefault("cleared"); len(got) != 0 {
+		t.Fatalf("an explicitly emptied pin set must stay empty, got %d", len(got))
+	}
+	seen := map[string]bool{}
+	for _, p := range Defaults() {
+		if seen[SeriesID(p)] || seen[p.Display] {
+			t.Fatalf("duplicate default pin %q", p.Display)
+		}
+		seen[SeriesID(p)], seen[p.Display] = true, true
+	}
+}

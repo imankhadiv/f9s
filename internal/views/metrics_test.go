@@ -5,12 +5,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/imankhadiv/f9s/internal/client"
 	"github.com/imankhadiv/f9s/internal/config"
+	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
+	"github.com/imankhadiv/f9s/internal/pins"
 )
 
 func TestMetricsRefreshIncludesSubtaskValues(t *testing.T) {
@@ -118,5 +121,28 @@ func TestSearchPrefixJumpsScope(t *testing.T) {
 	}
 	if len(m.matches) != 1 {
 		t.Fatalf("matches = %d, want 1", len(m.matches))
+	}
+}
+
+func TestPinnedTilesShowSampledSparkline(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ring := metricts.New(0)
+	now := time.Now()
+	first := pins.Defaults()[0]
+	for i, v := range []float64{1, 3, 2, 5} {
+		ring.Add(metricts.Key{Scope: metricts.ScopePin, ID: pins.SeriesID(first), Metric: "value"},
+			metricts.Point{Time: now.Add(time.Duration(i) * time.Second), Value: v})
+	}
+	m := NewMetrics(Deps{Ctx: "fresh", Metrics: ring}, model.JobOverview{})
+	if len(m.pinned) != len(pins.Defaults()) {
+		t.Fatalf("a fresh context starts with the curated pins, got %d", len(m.pinned))
+	}
+	strip := m.pinStrip()
+	if !strings.Contains(strip, first.Display) || !strings.Contains(strip, "5") || !strings.ContainsAny(strip, "▁▂▃▄▅▆▇█") {
+		t.Fatalf("pin strip lacks the sampled value/sparkline:\n%s", strip)
+	}
+	it := pinsToItems([]pins.Pin{first})[0]
+	if h := m.pinHistory(it); len(h) != 4 {
+		t.Fatalf("inspecting a pinned metric must start from its history, got %v", h)
 	}
 }

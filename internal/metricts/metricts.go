@@ -20,6 +20,7 @@ const (
 	ScopeTM     = "tm"
 	ScopeJob    = "job"
 	ScopeVertex = "vertex"
+	ScopePin    = "pin" // pinned Metrics Explorer series, ID = pins.SeriesID
 )
 
 // Metric names the sampler records. Flink metric names are used verbatim;

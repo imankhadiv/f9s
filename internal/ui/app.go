@@ -32,6 +32,7 @@ import (
 	"github.com/imankhadiv/f9s/internal/ledger"
 	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
+	"github.com/imankhadiv/f9s/internal/pins"
 	"github.com/imankhadiv/f9s/internal/plugin"
 	"github.com/imankhadiv/f9s/internal/runbook"
 	"github.com/imankhadiv/f9s/internal/sentinel"
@@ -589,6 +590,7 @@ func (a *App) sentinelTick() tea.Cmd {
 func (a *App) collectSentinel() tea.Cmd {
 	cl := a.cl
 	ring := a.metrics
+	ctxName := a.contextName
 	return func() tea.Msg {
 		jobs, err := cl.Jobs()
 		if err != nil {
@@ -676,7 +678,31 @@ func (a *App) collectSentinel() tea.Cmd {
 			}
 		}
 		liveTMs := fleet.Collect(cl, ring, now)
+		samplePins(cl, ring, pins.LoadOrDefault(ctxName), live, now)
 		return sentinelMsg{samples: out, jobs: health, liveJIDs: live, liveTMs: liveTMs, authoritative: true}
+	}
+}
+
+// metricReader is the slice of the client samplePins needs.
+type metricReader interface {
+	MetricValues(path string, keys []string) ([]model.Metric, error)
+}
+
+// samplePins records every pinned metric into the ring each sampler tick, so
+// the explorer's pinned sparklines have history even while it is closed.
+// Pins on jobs that are no longer running are skipped (they would only 404).
+func samplePins(cl metricReader, ring *metricts.Ring, ps []pins.Pin, liveJobs map[string]bool, now time.Time) {
+	for _, p := range ps {
+		if p.JID != "" && !liveJobs[p.JID] {
+			continue
+		}
+		ms, err := cl.MetricValues(p.Path, p.Keys)
+		if err != nil || len(ms) == 0 {
+			continue
+		}
+		if v, ok := ms[0].Float(); ok {
+			ring.Add(metricts.Key{Scope: metricts.ScopePin, ID: pins.SeriesID(p), Metric: "value"}, metricts.Point{Time: now, Value: v})
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/imankhadiv/f9s/internal/config"
 	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
+	"github.com/imankhadiv/f9s/internal/pins"
 )
 
 func TestRecordCheckpointAddsNewestCompletedOnce(t *testing.T) {
@@ -41,5 +42,30 @@ func TestAppPersistsMetricRingAcrossRestarts(t *testing.T) {
 	b := New(cfg, "dev", 2, nil, nil)
 	if p, ok := b.metrics.Last(k); !ok || p.Value != 42 {
 		t.Fatalf("history not restored: %+v %v", p, ok)
+	}
+}
+
+type fakeMetrics struct{ calls []string }
+
+func (f *fakeMetrics) MetricValues(path string, keys []string) ([]model.Metric, error) {
+	f.calls = append(f.calls, path)
+	return []model.Metric{{ID: keys[0], Value: "7"}}, nil
+}
+
+func TestSamplePinsRecordsLivePinsOnly(t *testing.T) {
+	ring := metricts.New(0)
+	f := &fakeMetrics{}
+	ps := []pins.Pin{
+		{Display: "jm", Path: "/jobmanager/metrics", Keys: []string{"numRunningJobs"}},
+		{Display: "gone", Path: "/jobs/dead/metrics", Keys: []string{"x"}, JID: "dead"},
+		{Display: "live", Path: "/jobs/alive/metrics", Keys: []string{"y"}, JID: "alive"},
+	}
+	samplePins(f, ring, ps, map[string]bool{"alive": true}, time.Now())
+	if len(f.calls) != 2 {
+		t.Fatalf("a pin on a finished job must not be polled: %v", f.calls)
+	}
+	p, ok := ring.Last(metricts.Key{Scope: metricts.ScopePin, ID: pins.SeriesID(ps[0]), Metric: "value"})
+	if !ok || p.Value != 7 {
+		t.Fatalf("pin not recorded: %+v %v", p, ok)
 	}
 }
