@@ -14,6 +14,7 @@ import (
 	"github.com/imankhadiv/f9s/internal/analyze"
 	"github.com/imankhadiv/f9s/internal/client"
 	"github.com/imankhadiv/f9s/internal/config"
+	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/plugin"
 	"github.com/imankhadiv/f9s/internal/sentinel"
 	"github.com/imankhadiv/f9s/internal/watch"
@@ -49,6 +50,7 @@ type Deps struct {
 	Plugins  []plugin.Plugin // exec plugins active in the jobs view
 	Sentinel *sentinel.Sentinel
 	Watch    *watch.Store
+	Metrics  *metricts.Ring // sampled metric history (trends, sparklines)
 }
 
 // PushMsg asks the root app to push a new view onto the stack.

@@ -29,6 +29,7 @@ import (
 	"github.com/imankhadiv/f9s/internal/incident"
 	"github.com/imankhadiv/f9s/internal/invlog"
 	"github.com/imankhadiv/f9s/internal/ledger"
+	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/plugin"
 	"github.com/imankhadiv/f9s/internal/runbook"
@@ -128,6 +129,7 @@ type App struct {
 	cmdMode      bool
 	cmdInput     textinput.Model
 	sent         *sentinel.Sentinel
+	metrics      *metricts.Ring
 	alertHook    *plugin.Hook
 	watchStore   *watch.Store
 	invRunning   bool
@@ -350,7 +352,8 @@ func New(cfg *config.Config, contextName string, refreshSeconds int, plugins []p
 	cl := client.New(cctx)
 	sent := sentinel.NewPersistent(contextName)
 	ws := watch.NewStore()
-	deps := views.Deps{CL: cl, Ctx: contextName, Cfg: cfg, Plugins: plugins, Sentinel: sent, Watch: ws}
+	ring := metricts.New(metricts.BufferLen)
+	deps := views.Deps{CL: cl, Ctx: contextName, Cfg: cfg, Plugins: plugins, Sentinel: sent, Watch: ws, Metrics: ring}
 	a := &App{
 		cfg:          cfg,
 		cl:           cl,
@@ -364,6 +367,7 @@ func New(cfg *config.Config, contextName string, refreshSeconds int, plugins []p
 		spin:         spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		cmdInput:     newCmdInput(),
 		sent:         sent,
+		metrics:      ring,
 		alertHook:    alertHook,
 		watchStore:   ws,
 		lastRestarts: map[string]int{},
@@ -556,6 +560,7 @@ func (a *App) sentinelTick() tea.Cmd {
 // collectSentinel samples every running job's vertices (backpressure + busy).
 func (a *App) collectSentinel() tea.Cmd {
 	cl := a.cl
+	ring := a.metrics
 	return func() tea.Msg {
 		jobs, err := cl.Jobs()
 		if err != nil {
@@ -588,6 +593,7 @@ func (a *App) collectSentinel() tea.Cmd {
 			}
 			h.snap = &snap
 			if cp, err := cl.Checkpoints(j.JID); err == nil {
+				recordCheckpoint(ring, j.JID, cp)
 				h.ckptKnown = true
 				if len(cp.History) >= 2 {
 					h.ckptBad = cp.History[0].Status == "FAILED" && cp.History[1].Status == "FAILED"
@@ -598,6 +604,10 @@ func (a *App) collectSentinel() tea.Cmd {
 					if m.ID == "numRestarts" {
 						fmt.Sscanf(m.Value, "%d", &h.numRestarts)
 					}
+				}
+				if h.numRestarts >= 0 {
+					ring.Add(metricts.Key{Scope: metricts.ScopeJob, ID: j.JID, Metric: "numRestarts"},
+						metricts.Point{Time: now, Value: float64(h.numRestarts)})
 				}
 			}
 			health = append(health, h)
@@ -618,6 +628,19 @@ func (a *App) collectSentinel() tea.Cmd {
 						skewValues = recs
 					}
 				}
+				vk := metricts.VertexID(j.JID, v.ID)
+				if busy >= 0 {
+					ring.Add(metricts.Key{Scope: metricts.ScopeVertex, ID: vk, Metric: metricts.Busy},
+						metricts.Point{Time: now, Value: busy})
+				}
+				if skewValues != nil {
+					var total float64
+					for _, r := range skewValues {
+						total += r
+					}
+					ring.Add(metricts.Key{Scope: metricts.ScopeVertex, ID: vk, Metric: metricts.RecordsIn},
+						metricts.Point{Time: now, Value: total, Subtasks: skewValues})
+				}
 				out = append(out, vertexSample{
 					key: sentinel.Key{JID: j.JID, VID: v.ID}, job: j.Name, vertex: v.Name,
 					sample: sentinel.Sample{Time: now, Level: level, BusyMs: busy}, skew: skew, skewValues: skewValues,
@@ -625,6 +648,25 @@ func (a *App) collectSentinel() tea.Cmd {
 			}
 		}
 		return sentinelMsg{samples: out, jobs: health, liveJIDs: live, authoritative: true}
+	}
+}
+
+// recordCheckpoint feeds the newest completed checkpoint into the ring once
+// (keyed by its trigger time, so re-reading the same checkpoint adds nothing).
+func recordCheckpoint(ring *metricts.Ring, jid string, cp model.Checkpoints) {
+	for _, c := range cp.History {
+		if c.Status != "COMPLETED" || c.IsSavepoint {
+			continue
+		}
+		at := time.UnixMilli(c.TriggerTimestamp)
+		size := metricts.Key{Scope: metricts.ScopeJob, ID: jid, Metric: metricts.CkptSize}
+		if last, ok := ring.Last(size); ok && !at.After(last.Time) {
+			return
+		}
+		ring.Add(size, metricts.Point{Time: at, Value: float64(c.StateSize)})
+		ring.Add(metricts.Key{Scope: metricts.ScopeJob, ID: jid, Metric: metricts.CkptDuration},
+			metricts.Point{Time: at, Value: float64(c.EndToEndDuration)})
+		return
 	}
 }
 
@@ -805,6 +847,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.authoritative {
 			a.sent.Prune(live)
+			a.metrics.Prune(func(k metricts.Key) bool {
+				jid := metricts.JobOf(k)
+				return jid == "" || live[jid] // cluster-scope series outlive jobs
+			})
 		}
 		for _, h := range msg.jobs {
 			if h.snap == nil {
@@ -1037,7 +1083,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.connected, a.everSeen = false, false
 		a.sent = sentinel.NewPersistent(msg.Name) // fresh watchdog for the new cluster
 		a.watchStore = watch.NewStore()
-		deps := views.Deps{CL: a.cl, Ctx: msg.Name, Cfg: a.cfg, Plugins: a.plugins, Sentinel: a.sent, Watch: a.watchStore}
+		a.metrics = metricts.New(metricts.BufferLen)
+		deps := views.Deps{CL: a.cl, Ctx: msg.Name, Cfg: a.cfg, Plugins: a.plugins, Sentinel: a.sent, Watch: a.watchStore, Metrics: a.metrics}
 		a.stack = []views.Model{views.NewJobs(deps)}
 		a.aiPanel.Reset(deps) // fresh cluster → drop the old transcript/scrubber
 		a.aiPanel.SetProvider(func() views.PageContext {
