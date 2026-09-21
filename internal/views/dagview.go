@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -12,6 +13,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/imankhadiv/f9s/internal/analyze"
+	"github.com/imankhadiv/f9s/internal/kube"
+	"github.com/imankhadiv/f9s/internal/metricts"
 	"github.com/imankhadiv/f9s/internal/model"
 	"github.com/imankhadiv/f9s/internal/sentinel"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
@@ -60,11 +63,36 @@ type DagView struct {
 	vp      viewport.Model
 	ready   bool
 	err     string
+
+	auto       dagAuto // operator autoscaler state for this job (via kubectl)
+	autoAt     time.Time
+	loadKube   func(string) ([]kube.FlinkDeployment, error)
+	loadEvents func(kubeContext, ns, name string) ([]kube.Event, error)
+	now        func() time.Time
 }
+
+// dagAuto links the running job to its FlinkDeployment and the operator
+// autoscaler's latest ScalingReport.
+type dagAuto struct {
+	linked   bool
+	ns, name string
+	mode     string // on / advisory / off
+	target   float64
+	boundary float64
+	recs     map[string]analyze.ScalingChange // vertex id → latest decision
+	reportAt time.Time
+}
+
+type dagAutoMsg struct{ auto dagAuto }
+
+// autoRefreshEvery throttles the kubectl lookups behind the autoscaler overlay.
+const autoRefreshEvery = 30 * time.Second
 
 // NewDagView builds the DAG view for one job.
 func NewDagView(deps Deps, jid, name string) *DagView {
-	return &DagView{deps: deps, jid: jid, name: name, stats: map[string]dagStat{}}
+	return &DagView{deps: deps, jid: jid, name: name, stats: map[string]dagStat{},
+		auto:     dagAuto{target: analyze.DefaultTargetUtilization, boundary: analyze.DefaultUtilizationBound},
+		loadKube: kube.Deployments, loadEvents: kube.Events, now: time.Now}
 }
 
 func (d *DagView) Title() string   { return "dag(" + d.name + ")" }
@@ -105,6 +133,86 @@ func (d *DagView) Refresh() tea.Cmd {
 		targets, _ := cl.ResourceTargets(jid) // best-effort; nil when unsupported
 		return dagMsg{plan: plan, job: job, rates: rates, targets: targets, err: nil}
 	}
+}
+
+// autoCmd looks up the job's FlinkDeployment (joined on status.jobStatus.jobId)
+// and its newest ScalingReport event. Only runs when the context maps a
+// kubeContext; any kubectl failure just leaves the overlay off.
+func (d *DagView) autoCmd() tea.Cmd {
+	kc, err := configuredKubeContext(d.deps)
+	if err != nil || d.now().Sub(d.autoAt) < autoRefreshEvery {
+		return nil
+	}
+	d.autoAt = d.now()
+	jid, loadKube, loadEvents := d.jid, d.loadKube, d.loadEvents
+	return func() tea.Msg {
+		a := dagAuto{target: analyze.DefaultTargetUtilization, boundary: analyze.DefaultUtilizationBound}
+		ds, err := loadKube(kc)
+		if err != nil {
+			return dagAutoMsg{auto: a}
+		}
+		for _, dep := range ds {
+			if dep.JobID == "" || dep.JobID != jid {
+				continue
+			}
+			a.linked, a.ns, a.name = true, dep.Namespace, dep.Name
+			a.mode = AutoscalerMode(dep.FlinkConfig)
+			a.target = analyze.ConfigFloat(dep.FlinkConfig, "target.utilization", analyze.DefaultTargetUtilization)
+			a.boundary = analyze.ConfigFloat(dep.FlinkConfig, "target.utilization.boundary", analyze.DefaultUtilizationBound)
+			if es, err := loadEvents(kc, dep.Namespace, dep.Name); err == nil {
+				for _, e := range es { // newest first
+					if e.Reason != "ScalingReport" {
+						continue
+					}
+					if cs := analyze.ParseScalingReport(e.Message); len(cs) > 0 {
+						a.recs = map[string]analyze.ScalingChange{}
+						for _, c := range cs {
+							a.recs[c.VID] = c
+						}
+						a.reportAt = e.Last
+						break
+					}
+				}
+			}
+			break
+		}
+		return dagAutoMsg{auto: a}
+	}
+}
+
+// busyAvg is the vertex's mean busy fraction over the last 5 minutes of
+// sampled history (ok=false with fewer than 3 samples).
+func (d *DagView) busyAvg(vid string) (float64, bool) {
+	pts := d.deps.Metrics.Series(metricts.Key{Scope: metricts.ScopeVertex, ID: metricts.VertexID(d.jid, vid), Metric: metricts.Busy})
+	pts = metricts.Since(pts, d.now().Add(-5*time.Minute))
+	if len(pts) < 3 {
+		return 0, false
+	}
+	var sum float64
+	for _, p := range pts {
+		sum += p.Value
+	}
+	return sum / float64(len(pts)) / 1000, true
+}
+
+// recommendation returns the parallelism to show next to the current one:
+// the operator's latest ScalingReport decision if there is one, otherwise
+// f9s's own utilization estimate. Down-scale estimates are shown only for
+// autoscaled jobs; elsewhere an idle vertex is not a problem worth flagging.
+func (d *DagView) recommendation(vid string, par int) (to int, source string) {
+	if c, ok := d.auto.recs[strings.ToLower(vid)]; ok && c.To > 0 && c.To != par {
+		return c.To, "operator"
+	}
+	busy, ok := d.busyAvg(vid)
+	if !ok {
+		return par, ""
+	}
+	est := analyze.EstimateParallelism(par, busy, d.auto.target, d.auto.boundary, 0)
+	autoscaled := d.auto.linked && d.auto.mode != "off"
+	if est == par || (est < par && !autoscaled) {
+		return par, ""
+	}
+	return est, "estimate"
 }
 
 // sampleCmds fetches per-vertex backpressure, busy-max and skew in parallel so
@@ -160,7 +268,13 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if d.ready {
 			d.vp.SetContent(d.render(d.vp.Width))
 		}
-		return d, d.sampleCmds()
+		return d, tea.Batch(d.sampleCmds(), d.autoCmd())
+	case dagAutoMsg:
+		d.auto = msg.auto
+		if d.ready {
+			d.vp.SetContent(d.render(d.vp.Width))
+		}
+		return d, nil
 	case dagStatMsg:
 		d.stats[msg.vid] = msg.stat
 		if d.ready {
@@ -271,8 +385,13 @@ func (d *DagView) AIContext() (string, []string) {
 		fmt.Fprintf(&b, "- %s p=%d bp=%s busy=%s skew=%s", label, par, pct(st.bpMax), pct(st.busyMax), pct(st.skew))
 		if t, ok := d.targets[n.ID]; ok && t > 0 && t != par {
 			fmt.Fprintf(&b, " (rescale pending → %d)", t)
+		} else if to, src := d.recommendation(n.ID, par); src != "" {
+			fmt.Fprintf(&b, " (%s suggests parallelism %d)", map[string]string{"operator": "operator autoscaler", "estimate": "f9s utilization estimate"}[src], to)
 		}
 		b.WriteString("\n")
+	}
+	if d.auto.linked {
+		fmt.Fprintf(&b, "FlinkDeployment %s/%s · autoscaler %s · target utilization %.0f%%\n", d.auto.ns, d.auto.name, d.auto.mode, d.auto.target*100)
 	}
 	return b.String(), []string{d.name}
 }
@@ -467,7 +586,7 @@ func (d *DagView) classify(n model.PlanNode, st dagStat) boxHealth {
 	case st.level == "high":
 		return hBackpressured
 	case st.busyMax >= 80:
-		return hBusy // likely downstream bottleneck
+		return hBusy // saturated: this vertex is the bottleneck
 	case st.level == "low" || st.busyMax >= 50:
 		return hWarn
 	case st.busyMax < 0 && st.level == "":
@@ -526,6 +645,15 @@ func (d *DagView) box(n model.PlanNode, bw int, selected bool) string {
 	parLine := lipgloss.NewStyle().Foreground(col).Bold(true).Render(fmt.Sprintf("parallelism  %d", par))
 	if t, ok := d.targets[n.ID]; ok && t > 0 && t != par {
 		parLine = styles.StateText().Bold(true).Render(fmt.Sprintf("parallelism  %d → %d ⟳", par, t))
+	} else if to, src := d.recommendation(n.ID, par); src == "operator" {
+		badge := "●"
+		if !d.auto.recs[strings.ToLower(n.ID)].Applied {
+			badge = "◐"
+		}
+		parLine = styles.StateText().Bold(true).Render(fmt.Sprintf("parallelism  %d ⇒ %d %s", par, to, badge))
+	} else if src == "estimate" {
+		parLine = lipgloss.NewStyle().Foreground(col).Bold(true).Render(fmt.Sprintf("parallelism  %d", par)) +
+			styles.Dim().Render(fmt.Sprintf(" ⇒ %d~", to))
 	}
 
 	body := title + "\n" +
@@ -648,7 +776,23 @@ func (d *DagView) renderBoxes(iw int) string {
 		styles.WarnText().Render("elevated") + " · " + styles.ErrText().Render("busy") + " · " +
 		styles.BackpressureText().Render("backpressured") +
 		styles.Dim().Render("   —   ←→ select · R rescale · shift+←→ pan")
-	return row + hint + "\n" + legend
+	return row + hint + "\n" + legend + d.autoLegend()
+}
+
+// autoLegend explains the parallelism suggestions and, for a job managed by
+// the operator, the autoscaler's state.
+func (d *DagView) autoLegend() string {
+	var parts []string
+	if d.auto.linked {
+		badge := map[string]string{"on": "● on", "advisory": "◐ advisory (recommends only)", "off": "○ off"}[d.auto.mode]
+		line := fmt.Sprintf("autoscaler %s · %s/%s · target %.0f%% ±%.0f%%", badge, d.auto.ns, d.auto.name, d.auto.target*100, d.auto.boundary*100)
+		if !d.auto.reportAt.IsZero() {
+			line += " · last ScalingReport " + ago(d.auto.reportAt) + " ago"
+		}
+		parts = append(parts, line)
+	}
+	parts = append(parts, fmt.Sprintf("⇒ N● operator decision · ⇒ N◐ operator recommendation · ⇒ N~ f9s estimate (5m avg busy vs %.0f%% target)", d.auto.target*100))
+	return "\n " + styles.Dim().Render(strings.Join(parts, "   "))
 }
 
 // interleaveBlank puts a blank spacer line between stacked boxes in a column.
