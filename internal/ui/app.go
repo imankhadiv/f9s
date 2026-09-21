@@ -272,9 +272,17 @@ func (a *App) fitFlash(s string) string {
 	return fitText(s, a.width-1) // flashLine indents by one column
 }
 
+// deps is the one place views get their shared dependencies — every field,
+// so no navigation path hands a view a partial set (a missing ring silently
+// disables trends and estimates).
+func (a *App) deps() views.Deps {
+	return views.Deps{CL: a.cl, Ctx: a.contextName, Cfg: a.cfg, Plugins: a.plugins,
+		Sentinel: a.sent, Watch: a.watchStore, Metrics: a.metrics}
+}
+
 // runCommand navigates to the resolved command's view.
 func (a *App) runCommand(cmd string) tea.Cmd {
-	deps := views.Deps{CL: a.cl, Ctx: a.contextName, Cfg: a.cfg, Plugins: a.plugins, Sentinel: a.sent, Watch: a.watchStore}
+	deps := a.deps()
 	jobs := views.NewJobs(deps)
 	var target views.Model
 	switch cmd {
@@ -1092,7 +1100,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.sent = sentinel.NewPersistent(msg.Name) // fresh watchdog for the new cluster
 		a.watchStore = watch.NewStore()
 		a.metrics = metricts.New(metricts.BufferLen)
-		deps := views.Deps{CL: a.cl, Ctx: msg.Name, Cfg: a.cfg, Plugins: a.plugins, Sentinel: a.sent, Watch: a.watchStore, Metrics: a.metrics}
+		deps := a.deps()
 		a.stack = []views.Model{views.NewJobs(deps)}
 		a.aiPanel.Reset(deps) // fresh cluster → drop the old transcript/scrubber
 		a.aiPanel.SetProvider(func() views.PageContext {
@@ -1303,7 +1311,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.cmdMode = true
 				return a, a.cmdInput.Focus()
 			case "!":
-				deps := views.Deps{CL: a.cl, Ctx: a.contextName, Cfg: a.cfg, Plugins: a.plugins, Sentinel: a.sent, Watch: a.watchStore}
+				deps := a.deps()
 				v := views.NewAlerts(deps)
 				a.stack = append(a.stack, v)
 				return a, v.Init()
