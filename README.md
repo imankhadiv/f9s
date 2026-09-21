@@ -33,9 +33,13 @@ The dashboard is fine at watching one job. Operating is a different sport:
 | Backpressure + busy + watermarks | spread across tabs, click per vertex | ✓ one table, bottleneck auto-flagged |
 | Which subtask is actually blocked | ✗ vertex-level only | ✓ `e` per-subtask buffer fingerprint |
 | Checkpoint history | last **10** (`web.checkpoints.history`) | ✓ full history view |
+| Which operator made checkpoints slow/big | ✗ open each checkpoint, compare by eye | ✓ `c` per-vertex compare of the last 6, top grower named |
+| Will a cancel lose my state? | ✗ read the config yourself | ✓ retention + failure-budget warnings on the checkpoints view |
+| JVM fleet: heap, GC time, metaspace, buffers | ✗ one TaskManager page at a time | ✓ `:fleet`, trended, OOM precursors flagged |
 | Completed-job postmortems | separate History Server UI in a browser | ✓ `:history`, same keybindings |
 | SQL console | ✗ | ✓ `Q` via SQL Gateway |
-| Kubernetes operator awareness | ✗ | ✓ `K` FlinkDeployments |
+| Kubernetes operator awareness | ✗ | ✓ `K` operator tree: session jobs, drift, events, pods, guarded CR changes |
+| Autoscaler decisions | ✗ | ✓ current ⇒ recommended parallelism on the graph, flapping flagged |
 | AI diagnosis & chat | ✗ | ✓ explain `a`, investigate `A`, ask `@` — local-first, anonymized |
 | AI-suggested actions | ✗ | ✓ proposed, never auto-run — you confirm inline |
 | Page-aware AI panel | ✗ | ✓ `A` — a side panel that always knows the page you're on |
@@ -48,9 +52,10 @@ The dashboard is fine at watching one job. Operating is a different sport:
 > ⚠️ **Status: pre-1.0.** The daily loop is solid: jobs, job detail and the
 > execution graph, checkpoints, exceptions, TaskManagers, the metrics explorer,
 > multi-cluster contexts, and the **savepoint ledger** — f9s records every
-> savepoint path it takes, because Flink doesn't. **Savepoint,
-> stop-with-savepoint, cancel and rescale** always confirm before they touch
-> the cluster, and `readOnly: true` disables them outright. Expect the UI to
+> savepoint path it takes, because Flink doesn't. **Every mutating action** —
+> savepoint, stop, cancel, rescale, savepoint restore/disposal, and Flink
+> Kubernetes Operator changes — confirms before it touches the cluster, is
+> written to an audit trail, and is disabled outright by `readOnly: true`. Expect the UI to
 > keep moving while it's 0.x — see the roadmap below.
 
 ## Quickstart
@@ -85,22 +90,22 @@ retrying with backoff until the cluster answers.
 | `enter` | drill into selected job (vertices + backpressure + a pre-backpressure early warning from soft-bp/mailbox-latency) |
 | `l` | logs, k9s-style: JobManager log from the jobs view; a TaskManager's log from the `:tm` list — `F` lists rotated files, `o` tails stdout |
 | `L` | merged job logs: tails every TaskManager running the job's subtasks, timestamp-merged with per-TM tags — kubectl-logs for a Flink job |
-| `c` | checkpoints for selected job — `enter` on a checkpoint opens the per-subtask straggler breakdown with a blocked-share heatmap, and a failed run carries its reason in a banner instead of a bare `FAILED` |
+| `c` | checkpoints for selected job — incremental upload size per checkpoint (DELTA), in-flight data, what a cancel would do to retained checkpoints, and the tolerable-failure budget; `enter` on a checkpoint opens the per-subtask straggler breakdown with a blocked-share heatmap; `c` compares it with the previous completed checkpoints vertex by vertex (`m` cycles size/duration/uploaded/alignment); a failed run carries its reason in a banner instead of a bare `FAILED` |
 | `x` | exceptions for selected job |
 | `s` | trigger savepoint (prompts for target dir) |
 | `S` | stop with savepoint |
 | `ctrl-x` | cancel job |
-| `p` | savepoint ledger (`enter` restore cmd, `y` copy path) |
+| `p` | savepoint ledger (`enter` restore cmd, `y` copy path, `D` dispose — refuses a running job's only recovery point) |
 | `o` | cycle sort: triage / name / uptime / status |
-| `t` | TaskManagers (enter → heap/GC detail, `l` log tail, `P` flame graph, `T` thread dump) (in the jobs view) |
-| `m` | metrics explorer: fuzzy-search every cluster metric (`tm:`/`job:`/`v:` prefixes jump scope), inspect live, `s` per-subtask bars that refresh with the value, `ctrl-p` pins a tile (persisted per context), `a` asks AI about the value. Metric names carrying Flink's reserved characters (`# $ & + / ; = ? @`) resolve correctly |
+| `t` | TaskManagers (enter → heap/GC detail, `l` log tail, `P` flame graph, `T` thread dump; on a shared session cluster a JOBS column and a per-job slot-share line) (in the jobs view) |
+| `m` | metrics explorer: fuzzy-search every cluster metric (`tm:`/`job:`/`v:` prefixes jump scope), inspect live, `s` per-subtask bars that refresh with the value, `ctrl-p` pins a tile (persisted per context, with a sparkline sampled even while the explorer is closed; a fresh context starts with curated pins), `a` asks AI about the value. Metric names carrying Flink's reserved characters (`# $ & + / ; = ? @`) resolve correctly |
 | `C` | contexts fleet view (enter → switch cluster) |
 | `a` | AI explain: diagnose the selected job (see below) |
 | `A` | agentic investigate: the model drills deeper with read-only tools, every call shown |
 | `@` | ask AI: free-form chat about the job (or `:ask` cluster-wide) — starter questions, and it can propose actions you approve inline |
 | `b` | backpressure history sparklines (in job detail) |
 | `e` | the backpressure edge: a vertex's per-subtask buffer fingerprint — which subtasks are actually blocked, not just which vertex looks busy (in job detail) |
-| `g` | execution graph as Flink-UI-style boxes — per-operator parallelism, backpressure/busy/skew gauges, health-colored; `←→` selects a box, `R` rescales it (FLIP-291), `shift+←→` pans (in job detail) |
+| `g` | execution graph as Flink-UI-style boxes — per-operator parallelism, backpressure/busy/skew gauges, health-colored; each box shows the next parallelism (`⇒ N●` operator autoscaler decision, `⇒ N◐` its recommendation, `⇒ N~` f9s's own utilization estimate); `←→` selects a box, `R` rescales it (FLIP-291), `O` pins its parallelism in the FlinkDeployment, `shift+←→` pans (in job detail) |
 | `t` | per-vertex subtask table: attempts, TaskManager, lifecycle durations; enter shows retained attempt history (in job detail) |
 | `O` | config resolution: the cluster→job→operator override chain per setting, with the winning layer marked (in job detail) |
 | `w` | watermark propagation debugger: per-vertex event-time lag, the first stalling vertex + why (job detail) |
@@ -108,10 +113,11 @@ retrying with backoff until the cluster answers.
 | `R` | rescale vertex live (FLIP-291, needs adaptive scheduler) |
 | `d` | skew drill-down: per-subtask distribution + cause + fix |
 | `Q` | SQL Gateway console (needs `sqlGateway:` in the context) |
-| `K` | FlinkDeployments (Flink Kubernetes Operator, via kubectl; needs `kubeContext:` in the context) |
+| `K` | Flink Kubernetes Operator tree (via kubectl; needs `kubeContext:` in the context) — see [below](#kubernetes-operator) |
 | `/` | filter jobs |
-| `:` | command mode — `:jobs` `:cluster` `:tms` `:savepoints` `:contexts` `:k8s` `:sql` `:log` `:alerts` `:investigations` `:config` `:jars` `:jmlog` `:timeline` `:doctor` `:ask` `:pulse` `:waste` `:history` `:quit`, plus short aliases (`:j` `:sp` `:tm` `:ctx`). A prefix matching several destinations names them rather than guessing: `:c` answers `cluster · contexts · log · config · ask · waste` instead of silently picking one |
-| `:timeline` | the merged incident feed — alerts, actions, AI investigations, chronologically; `E` exports a markdown postmortem draft |
+| `:` | command mode — `:jobs` `:cluster` `:tms` `:savepoints` `:contexts` `:k8s` `:sql` `:log` `:alerts` `:investigations` `:config` `:jars` `:jmlog` `:timeline` `:doctor` `:ask` `:pulse` `:waste` `:fleet` `:history` `:quit`, plus short aliases (`:j` `:sp` `:tm` `:ctx`). A prefix matching several destinations names them rather than guessing: `:c` answers `cluster · contexts · log · config · ask · waste` instead of silently picking one |
+| `:timeline` | the merged incident feed — alerts, actions, config changes, operator autoscaler decisions (with flapping flagged), AI investigations, chronologically; `E` exports a markdown postmortem draft |
+| `:fleet` | every JobManager/TaskManager JVM: heap, GC share of wall time, metaspace, managed memory, network buffers — 5-minute sparklines, OOM precursors flagged |
 | `!` | alerts (sentinel: backpressure, data skew, checkpoint-failure streaks, restart loops — hysteresis-gated). Telemetry f9s couldn't read counts as unknown, not healthy, so a monitoring gap pauses the hysteresis instead of quietly resolving your incident |
 | `:jars` | upload & submit jars; `S` restores from a savepoint (prefilled from the ledger) — the stop→fix→resume loop without leaving the terminal. Restores are **strict**: see below |
 | `r` | refresh now |
@@ -188,9 +194,14 @@ f9s mcp --context staging --allow-writes  # + savepoint / stop / cancel
 ```
 
 Read tools: `list_jobs`, `get_job`, `get_checkpoints`, `get_exceptions`,
-`get_taskmanagers`, `list_savepoints`, and `get_diagnosis_evidence` (f9s's
-curated analyzer bundle). Write tools exist only when the operator passes
-`--allow-writes`; savepoints taken through MCP land in the ledger too.
+`get_taskmanagers`, `list_savepoints`, `get_signal_history`, and
+`get_diagnosis_evidence` (f9s's curated analyzer bundle). Write tools exist
+only when the operator passes `--allow-writes`: savepoint, stop, cancel,
+rescale, restore-from-savepoint and savepoint disposal — plus, when the
+context has a `kubeContext`, the operator tools (suspend/resume, restart,
+savepoint, parallelism, redeploy from savepoint, per-vertex parallelism pins,
+autoscaler on/off and target utilization). Savepoints taken through MCP land
+in the ledger too, and every write is audited.
 
 Claude Code registration: `claude mcp add f9s -- f9s mcp --context staging`
 
@@ -205,6 +216,35 @@ Set `stateVolumeGB: <size>` on a context and the checkpoints view turns
 the state-size trend into a disk-full ETA — least-squares over completed
 checkpoints projects when growing state fills the volume, red under a
 week out. Without it you still get the quantified growth rate.
+
+`:fleet` is the JVM side of capacity: heap, GC time as a share of wall
+time, metaspace (steady growth on a session cluster is a classloader leak),
+managed memory and network buffers for every JobManager and TaskManager —
+sampled every 15s into f9s's metric history, which survives restarts.
+
+## Kubernetes operator
+
+With `kubeContext:` set on a context, `K` shows the Flink Kubernetes
+Operator's resources as a tree — each FlinkDeployment with its
+FlinkSessionJobs nested beneath — with lifecycle, reconcile state (`⟳` when a
+spec edit hasn't been reconciled yet) and the autoscaler mode (`●` scaling,
+`◐` recommendations only, `○` off). `enter` opens a resource: the decoded
+operator error, job spec, savepoint history and autoscaler settings; `e`
+lists its Kubernetes events, `p` its pods (restarts, `OOMKilled`,
+`CrashLoopBackOff`), `y` the raw YAML.
+
+From the detail view, `s` savepoint · `z` suspend/resume · `x` restart · `P`
+parallelism · `b` redeploy from a savepoint · `o` autoscaler on/off · `u`
+target utilization. Every change is a JSON merge patch that f9s:
+
+1. refuses while the operator is upgrading or rolling back, or while an
+   earlier spec edit is still unreconciled;
+2. validates with `kubectl patch --dry-run=server` (a field your operator
+   version doesn't know fails here, before anything changes);
+3. applies only after your confirmation, and audits.
+
+f9s always passes `--context <kubeContext>` and never falls back to kubectl's
+current context.
 
 ## Desktop notifications
 
@@ -341,7 +381,7 @@ currentContext: prod-eu
 contexts:
   prod-eu:
     url: https://flink.prod.example.com
-    kubeContext: prod-eu-admin                  # required for the FlinkDeployments view (K)
+    kubeContext: prod-eu-admin                  # enables the operator tree (K), autoscaler overlay and operator actions
     auth: { type: bearer, tokenEnv: FLINK_TOKEN }
     savepointDir: s3://my-bucket/savepoints   # prefills the savepoint prompt
     sqlGateway: https://flink-gw.prod.example.com   # enables the SQL console (Q)
@@ -365,6 +405,10 @@ context.
   view, exec-plugin system, Homebrew tap.
 - **v0.3+** — AI explain (local-first via Ollama, k8sgpt-style analyzers),
   `f9s mcp` server mode, Flink Kubernetes Operator awareness, SQL Gateway console.
+- **Pre-1.0 depth** — ✅ backpressure edge, checkpoint health and per-vertex
+  compare, operator tree with guarded CR changes, autoscaler overlay and
+  flapping detection, JVM fleet view, persistent metric history.
+- **Next** — Homebrew tap, public launch.
 
 ## Contributing
 
