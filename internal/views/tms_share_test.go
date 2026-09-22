@@ -48,3 +48,12 @@ func TestSlotShareForgetsDepartedTaskManagers(t *testing.T) {
 		t.Fatalf("departed TM still counted: %+v", shares)
 	}
 }
+
+func TestShortJobNameDisambiguatesSQLJobs(t *testing.T) {
+	if got := shortJobName("insert-into_default_catalog.default_database.chaos_agg_sink"); got != "insert→chaos_agg_sink" {
+		t.Errorf("got %q", got)
+	}
+	if got := shortJobName("CarTopSpeedWindowingExample"); got != "CarTopSpeedWindowingExample" {
+		t.Errorf("got %q", got)
+	}
+}

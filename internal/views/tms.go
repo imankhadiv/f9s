@@ -294,6 +294,19 @@ func (t *TaskManagersView) jobsCell(id string) uitable.Cell {
 	return uitable.Plain("1")
 }
 
+// shortJobName drops the boilerplate Flink SQL puts in front of INSERT job
+// names ("insert-into_default_catalog.default_database.orders" → "orders"),
+// which otherwise makes every SQL job truncate to the same label.
+func shortJobName(name string) string {
+	if rest, ok := strings.CutPrefix(name, "insert-into_"); ok {
+		if i := strings.LastIndexByte(rest, '.'); i >= 0 {
+			rest = rest[i+1:]
+		}
+		return "insert→" + rest
+	}
+	return name
+}
+
 // slotShare is one job's slice of the cluster's task slots.
 type slotShare struct {
 	jid, name string
@@ -310,7 +323,7 @@ func (t *TaskManagersView) slotShares() []slotShare {
 	}
 	out := make([]slotShare, 0, len(totals))
 	for jid, n := range totals {
-		name := t.names[jid]
+		name := shortJobName(t.names[jid])
 		if name == "" {
 			name = jid[:min(8, len(jid))]
 		}

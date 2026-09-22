@@ -146,3 +146,34 @@ func TestPinnedTilesShowSampledSparkline(t *testing.T) {
 		t.Fatalf("inspecting a pinned metric must start from its history, got %v", h)
 	}
 }
+
+func TestPinValuesUseDictionaryUnits(t *testing.T) {
+	heap := metricItem{keys: []string{"Status.JVM.Memory.Heap.Used"}}
+	cpu := metricItem{keys: []string{"Status.JVM.CPU.Load"}}
+	jobs := metricItem{keys: []string{"numRunningJobs"}}
+	if got := fmtPinValue(heap, 62817360); got != "59.9MiB" {
+		t.Errorf("heap = %q", got)
+	}
+	if got := fmtPinValue(cpu, 0.194); got != "19%" {
+		t.Errorf("cpu = %q", got)
+	}
+	if got := fmtPinValue(jobs, 3); got != "3" {
+		t.Errorf("jobs = %q", got)
+	}
+}
+
+func TestEscLeavesThePalette(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	m := NewMetrics(Deps{Ctx: "x"}, model.JobOverview{})
+	m.input.SetValue("heap")
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd != nil || m.input.Value() != "" {
+		t.Fatalf("first esc must clear the search (value %q)", m.input.Value())
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("esc on an empty search must leave the explorer")
+	}
+	if _, ok := cmd().(PopMsg); !ok {
+		t.Fatalf("esc produced %#v", cmd())
+	}
+}

@@ -44,7 +44,7 @@ func NewCheckpointCompare(deps Deps, jid, name string, ids []int64) *CheckpointC
 	for i := len(ids) - 1; i >= 0; i-- { // oldest → newest, left to right
 		cols = append(cols, uitable.Column{Title: fmt.Sprintf("#%d", ids[i]), Width: 9, Right: true})
 	}
-	cols = append(cols, uitable.Column{Title: "TREND", Width: len(ids) + 1}, uitable.Column{Title: "CHANGE", Width: 8, Right: true})
+	cols = append(cols, uitable.Column{Title: "TREND", Width: max(len(ids)+1, 6)}, uitable.Column{Title: "CHANGE", Width: 8, Right: true})
 	c.tbl = newTable(cols)
 	return c
 }

@@ -355,6 +355,15 @@ func (m *MetricsExplorer) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.String() {
+		case "esc":
+			// the palette captures typing, so the app never sees esc here:
+			// first clear the search, then leave the explorer
+			if m.input.Value() != "" {
+				m.input.SetValue("")
+				m.search()
+				return m, nil
+			}
+			return m, func() tea.Msg { return PopMsg{} }
 		case "tab":
 			m.scope = (m.scope + 1) % scopeCount
 			m.cursor = 0
@@ -423,6 +432,26 @@ func (m *MetricsExplorer) pinHistory(it metricItem) []float64 {
 	return nil
 }
 
+// fmtPinValue renders a pinned value in its dictionary unit (bytes as
+// KiB/MiB, ratios as %), falling back to a compact number.
+func fmtPinValue(it metricItem, v float64) string {
+	if len(it.keys) > 0 {
+		if info, ok := metricdict.Lookup(it.keys[0]); ok {
+			switch info.Unit {
+			case "bytes":
+				return model.FmtBytes(int64(v))
+			case "ratio":
+				return fmt.Sprintf("%.0f%%", v*100)
+			}
+		}
+	}
+	val := strconv.FormatFloat(v, 'f', -1, 64)
+	if len(val) > 12 {
+		val = fmt.Sprintf("%.3g", v)
+	}
+	return val
+}
+
 // pinStrip renders the pinned tiles with their last-polled values.
 func (m *MetricsExplorer) pinStrip() string {
 	if len(m.pinned) == 0 {
@@ -432,10 +461,7 @@ func (m *MetricsExplorer) pinStrip() string {
 	for i, p := range m.pinned {
 		val := "…"
 		if v, ok := m.pinVals[i]; ok {
-			val = strconv.FormatFloat(v, 'f', -1, 64)
-			if len(val) > 12 {
-				val = fmt.Sprintf("%.3g", v)
-			}
+			val = fmtPinValue(p, v)
 		}
 		name := p.display
 		if len(name) > 28 {
@@ -443,7 +469,7 @@ func (m *MetricsExplorer) pinStrip() string {
 		}
 		if val == "…" { // not polled yet this session: fall back to the sampler's last value
 			if last, ok := m.deps.Metrics.Last(pinKey(p)); ok {
-				val = strconv.FormatFloat(last.Value, 'g', 4, 64)
+				val = fmtPinValue(p, last.Value)
 			}
 		}
 		tile := styles.Dim().Render(name+" ") + styles.OKText().Render(val)
