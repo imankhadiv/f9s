@@ -100,7 +100,9 @@ func TestCommandGuideFitsAvailableWidth(t *testing.T) {
 	}
 }
 
-func TestAmbiguousCommandDoesNotNavigate(t *testing.T) {
+// An ambiguous prefix is no longer a dead end: the dropdown highlights a
+// destination and enter runs that one — the operator can see which.
+func TestAmbiguousPrefixRunsTheHighlightedMatch(t *testing.T) {
 	cfg := &config.Config{Contexts: map[string]config.Context{
 		"test": {URL: "http://unused"},
 	}}
@@ -114,15 +116,38 @@ func TestAmbiguousCommandDoesNotNavigate(t *testing.T) {
 		cmdMode:     true,
 		cmdInput:    newCmdInput(),
 	}
-	a.cmdInput.SetValue("c")
+	a.cmdInput.SetValue("c") // cluster, contexts, log, config, ask, waste
+
+	_, _ = a.Update(tea.KeyMsg{Type: tea.KeyDown}) // highlight "contexts"
+	_, _ = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if a.flash != "" {
+		t.Fatalf("flash = %q, want none", a.flash)
+	}
+	if got := a.top().Title(); got != "contexts" {
+		t.Fatalf("ran %q, want the highlighted contexts", got)
+	}
+	if a.cmdMode {
+		t.Fatal("command mode stayed open")
+	}
+}
+
+// An input nothing matches still refuses, and says what exists.
+func TestUnknownCommandFlashes(t *testing.T) {
+	cfg := &config.Config{Contexts: map[string]config.Context{"test": {URL: "http://unused"}}}
+	cl := client.New(cfg.Contexts["test"])
+	deps := views.Deps{CL: cl, Ctx: "test", Cfg: cfg}
+	a := &App{cfg: cfg, cl: cl, contextName: "test", width: 200,
+		stack: []views.Model{views.NewJobs(deps)}, cmdMode: true, cmdInput: newCmdInput()}
+	a.cmdInput.SetValue("zzz")
 
 	_, _ = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	if len(a.stack) != 1 {
-		t.Fatalf("ambiguous command changed stack length to %d", len(a.stack))
+		t.Fatalf("unknown command changed stack length to %d", len(a.stack))
 	}
-	if !strings.Contains(a.flash, "ambiguous command :c") {
-		t.Fatalf("flash = %q, want ambiguous-command guidance", a.flash)
+	if !strings.Contains(a.flash, "unknown command :zzz") {
+		t.Fatalf("flash = %q", a.flash)
 	}
 }
 
@@ -177,22 +202,10 @@ func TestWideCandidateHintIsTruncated(t *testing.T) {
 	restore := commandTargets
 	t.Cleanup(func() { commandTargets = restore })
 	commandTargets = append(commandTargets[:len(commandTargets):len(commandTargets)],
-		struct {
-			names []string
-			desc  string
-		}{[]string{"consolidation"}, "synthetic"},
-		struct {
-			names []string
-			desc  string
-		}{[]string{"compaction"}, "synthetic"},
-		struct {
-			names []string
-			desc  string
-		}{[]string{"commitments"}, "synthetic"},
-		struct {
-			names []string
-			desc  string
-		}{[]string{"coordinator"}, "synthetic"},
+		commandTarget{[]string{"consolidation"}, "synthetic"},
+		commandTarget{[]string{"compaction"}, "synthetic"},
+		commandTarget{[]string{"commitments"}, "synthetic"},
+		commandTarget{[]string{"coordinator"}, "synthetic"},
 	)
 	if n := len(commandCandidates("c")); n < 10 {
 		t.Fatalf("synthetic table yielded only %d candidates", n)

@@ -131,6 +131,7 @@ type App struct {
 	fetching     bool
 	cmdMode      bool
 	cmdInput     textinput.Model
+	cmdSug       cmdSuggest
 	sent         *sentinel.Sentinel
 	metrics      *metricts.Ring
 	sentTicks    int
@@ -166,12 +167,16 @@ func newCmdInput() textinput.Model {
 	return in
 }
 
-// commandTargets maps command-mode aliases to view constructors. Navigation
-// commands reset the stack to jobs plus the target, so Esc always leads home.
-var commandTargets = []struct {
+// commandTarget is one command-mode destination: its canonical name, its
+// aliases, and the one-liner the dropdown shows beside it.
+type commandTarget struct {
 	names []string
 	desc  string
-}{
+}
+
+// commandTargets maps command-mode aliases to view constructors. Navigation
+// commands reset the stack to jobs plus the target, so Esc always leads home.
+var commandTargets = []commandTarget{
 	{[]string{"jobs", "job", "j"}, "jobs"},
 	{[]string{"cluster", "cl"}, "cluster components (JM + TMs)"},
 	{[]string{"tms", "tm", "taskmanagers"}, "taskmanagers"},
@@ -195,6 +200,34 @@ var commandTargets = []struct {
 	{[]string{"quit", "q"}, "quit"},
 }
 
+// commandMatches returns the destinations matching input, deduped, in table
+// order: an exact name or alias wins outright, an empty input offers
+// everything (typing ":" alone lists the whole menu), and anything else is
+// prefix-matched.
+func commandMatches(input string) []commandTarget {
+	if input == "" {
+		return append([]commandTarget(nil), commandTargets...)
+	}
+	for _, t := range commandTargets {
+		for _, n := range t.names {
+			if n == input {
+				return []commandTarget{t}
+			}
+		}
+	}
+	var out []commandTarget
+	seen := map[string]bool{}
+	for _, t := range commandTargets {
+		for _, n := range t.names {
+			if strings.HasPrefix(n, input) && !seen[t.names[0]] {
+				seen[t.names[0]] = true
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
 // commandCandidates returns the distinct canonical commands matching input.
 // An exact name or alias wins outright. Otherwise every name is prefix-matched
 // and the hits are deduped by destination, so ambiguity is measured in places
@@ -202,26 +235,14 @@ var commandTargets = []struct {
 // not (cluster, contexts, config, ...).
 func commandCandidates(input string) []string {
 	if input == "" {
-		return nil
+		return nil // an empty command is not a candidate, only a full menu
 	}
-	for _, t := range commandTargets {
-		for _, n := range t.names {
-			if n == input {
-				return []string{t.names[0]}
-			}
-		}
+	matches := commandMatches(input)
+	out := make([]string, len(matches))
+	for i, m := range matches {
+		out[i] = m.names[0]
 	}
-	var matches []string
-	seen := map[string]bool{}
-	for _, t := range commandTargets {
-		for _, n := range t.names {
-			if strings.HasPrefix(n, input) && !seen[t.names[0]] {
-				seen[t.names[0]] = true
-				matches = append(matches, t.names[0])
-			}
-		}
-	}
-	return matches
+	return out
 }
 
 // resolveCommand returns a canonical command only for an exact alias or a
@@ -286,6 +307,14 @@ const (
 // SaveState persists the metric ring for the active context (best-effort).
 func (a *App) SaveState() {
 	_ = a.metrics.Save(metricts.DataPath(a.contextName))
+}
+
+// closeCmdMode leaves command mode, clearing the input and the dropdown.
+func (a *App) closeCmdMode() {
+	a.cmdMode = false
+	a.cmdInput.SetValue("")
+	a.cmdInput.Blur()
+	a.cmdSug = cmdSuggest{}
 }
 
 // deps is the one place views get their shared dependencies — every field,
@@ -1267,27 +1296,43 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.cmdMode {
 			switch msg.String() {
 			case "esc":
-				a.cmdMode = false
-				a.cmdInput.SetValue("")
-				a.cmdInput.Blur()
+				a.closeCmdMode()
+				return a, nil
+			case "up", "ctrl+p", "shift+tab":
+				a.cmdSug.update(a.cmdInput.Value()) // no-op when already current
+				a.cmdSug.move(-1)
+				return a, nil
+			case "down", "ctrl+n":
+				a.cmdSug.update(a.cmdInput.Value())
+				a.cmdSug.move(1)
+				return a, nil
+			case "tab":
+				// complete the highlighted command; the list narrows to it
+				a.cmdSug.update(a.cmdInput.Value())
+				if sel := a.cmdSug.selected(); sel != "" {
+					a.cmdInput.SetValue(sel)
+					a.cmdInput.CursorEnd()
+					a.cmdSug.update(sel)
+				}
 				return a, nil
 			case "enter":
 				input := strings.TrimSpace(a.cmdInput.Value())
-				matches := commandCandidates(input)
-				a.cmdMode = false
-				a.cmdInput.SetValue("")
-				a.cmdInput.Blur()
-				switch len(matches) {
-				case 0:
+				// what the dropdown highlights is what runs — the operator can
+				// see it, so an ambiguous prefix is no longer a dead end.
+				// refreshing first is a no-op for a live dropdown (the input is
+				// unchanged, so the highlight survives) and keeps enter honest
+				// if the list never saw the keystrokes
+				a.cmdSug.update(input)
+				sel := a.cmdSug.selected()
+				a.closeCmdMode()
+				if sel == "" {
 					return a, a.setFlash(a.fitFlash("unknown command :"+input+"  ("+commandList()+")"), true)
-				case 1:
-					return a, a.runCommand(matches[0])
-				default:
-					return a, a.setFlash(a.fitFlash("ambiguous command :"+input+"  (matches: "+strings.Join(matches, " · ")+")"), true)
 				}
+				return a, a.runCommand(sel)
 			}
 			var cmd tea.Cmd
 			a.cmdInput, cmd = a.cmdInput.Update(msg)
+			a.cmdSug.update(a.cmdInput.Value())
 			return a, cmd
 		}
 		if a.modal != nil {
@@ -1370,6 +1415,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, tea.Quit
 			case ":":
 				a.cmdMode = true
+				a.cmdSug.update("") // ":" alone offers the whole menu
 				return a, a.cmdInput.Focus()
 			case "!":
 				deps := a.deps()
@@ -1537,19 +1583,10 @@ func (a *App) View() string {
 	}
 	if a.cmdMode {
 		head := " " + a.cmdInput.View()
-		// the candidate list grows with ambiguity (":c" reaches six views), so
-		// fit it before styling — lipgloss.Width would otherwise be measuring
-		// escape codes we cannot cut cleanly.
-		avail := a.width - lipgloss.Width(head)
-		hint := ""
-		matches := commandCandidates(strings.TrimSpace(a.cmdInput.Value()))
-		if len(matches) == 1 {
-			hint = styles.OKText().Render(fitText("  → "+matches[0], avail))
-		} else if len(matches) > 1 {
-			hint = styles.WarnText().Render(fitText("  ? "+strings.Join(matches, " · "), avail))
-		}
-		line := head + hint
-		return out + "\n" + line + styles.Dim().Render(commandGuide(a.width-lipgloss.Width(line)))
+		// the matching commands are listed above the prompt, so the line
+		// itself only carries the input and the key guide
+		line := head + styles.Dim().Render(fitText("   ↑↓ select · tab complete · enter run · esc cancel", a.width-lipgloss.Width(head)))
+		return out + "\n" + a.cmdSug.view(a.width) + "\n" + line
 	}
 	if !full {
 		out += "\n" + a.keyLegend(a.top().Bindings(), globalBindings())
