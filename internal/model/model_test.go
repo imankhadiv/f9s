@@ -31,3 +31,12 @@ func TestSummaryStatToleratesNaNStrings(t *testing.T) {
 		t.Fatalf("bad values: %+v", cp.Summary)
 	}
 }
+
+func TestFmtDurationSubSecond(t *testing.T) {
+	cases := map[int64]string{0: "0ms", 5: "5ms", 999: "999ms", 1000: "1s", 90_000: "1m30s"}
+	for ms, want := range cases {
+		if got := FmtDuration(ms); got != want {
+			t.Errorf("FmtDuration(%d) = %q, want %q", ms, got, want)
+		}
+	}
+}

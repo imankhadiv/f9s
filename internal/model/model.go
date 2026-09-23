@@ -537,8 +537,12 @@ func FmtDuration(ms int64) string {
 		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 	case d >= time.Minute:
 		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
-	default:
+	case d >= time.Second:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
+	default:
+		// sub-second: milliseconds, so a 5ms checkpoint and a 900ms one
+		// don't both read "0s"
+		return fmt.Sprintf("%dms", ms)
 	}
 }
 
