@@ -101,6 +101,7 @@ func (d *DagView) Filtering() bool { return false }
 func (d *DagView) Bindings() []key.Binding {
 	return []key.Binding{
 		binding("left", "←→", "select box"),
+		binding("enter", "enter", "live metrics + rows"),
 		binding("R", "R", "rescale"),
 		binding("O", "O", "pin parallelism (operator CR)"),
 		binding("up", "↑↓", "scroll"),
@@ -309,6 +310,13 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 				d.vp.SetContent(d.render(d.vp.Width))
 			}
 			return d, nil
+		case "enter":
+			n, ok := d.nodeByID(d.selVID)
+			if !ok {
+				return d, nil
+			}
+			label, par := d.nodeLabel(n)
+			return d, push(NewVertexLive(d.deps, d.jid, d.name, n.ID, label, par))
 		case "O":
 			// durable per-vertex pin in the FlinkDeployment — only when the
 			// job is linked to its CR, prefilled with the recommendation
@@ -795,7 +803,7 @@ func (d *DagView) renderBoxes(iw int) string {
 		styles.Dim().Render("source / unsampled") + " · " + styles.FlowText().Render("steady") + " · " +
 		styles.WarnText().Render("elevated") + " · " + styles.ErrText().Render("busy") + " · " +
 		styles.BackpressureText().Render("backpressured") +
-		styles.Dim().Render("   —   ←→ select · R rescale · shift+←→ pan")
+		styles.Dim().Render("   —   ←→ select · enter live · R rescale · shift+←→ pan")
 	return row + hint + "\n" + legend + d.autoLegend()
 }
 
