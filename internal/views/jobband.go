@@ -60,10 +60,28 @@ func (d *JobDetail) bandCmd() tea.Cmd {
 	}
 }
 
-// bandLine is one rendered line of the band.
+// bandLine is one rendered line of the band. hint names the key that acts
+// on the finding — a banner is the one place an operator is already looking
+// when that key becomes worth knowing.
 type bandLine struct {
 	text  string
 	level string // "" info · "warn" · "crit"
+	hint  string // e.g. "c for checkpoints"; dropped first when width is tight
+}
+
+// renderBandLine fits a line to width, dropping the key hint before the
+// finding it teaches.
+func renderBandLine(l bandLine, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if l.hint != "" {
+		full := l.text + "  ↳ " + l.hint
+		if len(full) <= width {
+			return full
+		}
+	}
+	return truncate(l.text, width)
 }
 
 // lastCheckpoint returns the newest non-savepoint checkpoint.
@@ -80,7 +98,7 @@ func lastCheckpoint(cp model.Checkpoints) (model.Checkpoint, bool) {
 // healthy, plus one line per abnormal signal, so the page grows with the
 // severity of what is wrong. Unknown signals are omitted, never rendered as
 // reassuring facts.
-func bandLines(job model.Job, b jobBand, freeSlots int, bottleneck string, advice []analyze.Advice) []bandLine {
+func bandLines(job model.Job, b jobBand, freeSlots int, bottleneck string, _ []analyze.Advice) []bandLine {
 	var out []bandLine
 
 	// ── summary ────────────────────────────────────────────────────────
@@ -125,16 +143,15 @@ func bandLines(job model.Job, b jobBand, freeSlots int, bottleneck string, advic
 				level = "crit" // the next counted failure fails the job over
 			}
 		}
-		out = append(out, bandLine{text: txt, level: level})
+		out = append(out, bandLine{text: txt, level: level, hint: "c for the checkpoint history"})
 	}
 
 	// ── bottleneck + what to do ────────────────────────────────────────
 	if bottleneck != "" {
-		txt := "⚑ bottleneck: " + bottleneck
-		if len(advice) > 0 {
-			txt += " ↳ " + advice[0].Text
-		}
-		out = append(out, bandLine{text: txt, level: "warn"})
+		// the advice renders on its own line(s) below: keeping this one short
+		// leaves room for the key that acts on it
+		out = append(out, bandLine{text: "⚑ bottleneck: " + bottleneck, level: "warn",
+			hint: "d for the subtask distribution"})
 	}
 
 	// ── last failure ───────────────────────────────────────────────────
@@ -143,12 +160,12 @@ func bandLines(job model.Job, b jobBand, freeSlots int, bottleneck string, advic
 		if b.exc.Timestamp > 0 {
 			txt += " · " + model.FmtAge(b.exc.Timestamp) + " ago"
 		}
-		out = append(out, bandLine{text: txt, level: "crit"})
+		out = append(out, bandLine{text: txt, level: "crit", hint: "x for the exception history"})
 	}
 
 	// ── tasks not running (slot starvation reads here first) ───────────
 	if line, bad := taskStatusLine(job.StatusCounts); bad {
-		out = append(out, bandLine{text: line, level: "warn"})
+		out = append(out, bandLine{text: line, level: "warn", hint: "t for the subtask states"})
 	}
 	return out
 }

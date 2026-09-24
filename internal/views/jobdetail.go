@@ -617,7 +617,12 @@ func (d *JobDetail) viewBody(width, height int) string {
 			state := styles.StateStyle(d.job.State).Render(d.job.State)
 			out += " " + state + styles.Dim().Render(strings.TrimPrefix(l.text, d.job.State)) + "\n"
 		} else {
-			out += " " + style.Render(truncate(l.text, max(10, width-2))) + "\n"
+			rendered := renderBandLine(l, max(10, width-2))
+			if finding, hint, found := strings.Cut(rendered, "  ↳ "); found {
+				out += " " + style.Render(finding) + styles.Dim().Render("  ↳ "+hint) + "\n"
+			} else {
+				out += " " + style.Render(rendered) + "\n"
+			}
 		}
 		used++
 	}
@@ -627,8 +632,7 @@ func (d *JobDetail) viewBody(width, height int) string {
 			ec.RestartStrategy, ec.JobParallelism, ec.ObjectReuse, len(ec.UserConfig))) + "\n"
 		used++
 	}
-	// remaining advice beyond the one the band carries
-	for _, adv := range d.advice[min(1, len(d.advice)):] {
+	for _, adv := range d.advice {
 		style := styles.WarnText()
 		if adv.Severity == "info" {
 			style = styles.Dim()
@@ -661,7 +665,14 @@ func (d *JobDetail) viewBody(width, height int) string {
 				}
 				detail += fmt.Sprintf("~%dms of buffered data queued (debloat estimate)", int(bp.debloat))
 			}
-			out += " " + styles.WarnText().Render(truncate("⚠ early warning: "+v.Name+" — buffers filling ("+detail+"), backpressure likely next", max(10, width-2))) + "\n"
+			warn := bandLine{text: "⚠ early warning: " + v.Name + " — buffers filling (" + detail + "), backpressure likely next",
+				hint: "e for the backpressure edge"}
+			rendered := renderBandLine(warn, max(10, width-2))
+			if finding, hint, found := strings.Cut(rendered, "  ↳ "); found {
+				out += " " + styles.WarnText().Render(finding) + styles.Dim().Render("  ↳ "+hint) + "\n"
+			} else {
+				out += " " + styles.WarnText().Render(rendered) + "\n"
+			}
 			used++
 			break // one banner; the worst offender is enough
 		}

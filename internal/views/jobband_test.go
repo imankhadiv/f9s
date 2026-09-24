@@ -93,13 +93,16 @@ func TestBandShowsRootExceptionAndBottleneck(t *testing.T) {
 	}
 	lines := bandLines(job, b, 0, "Window(5m)", []analyze.Advice{{Severity: "warn", Text: "try parallelism 8 → 16"}})
 	txt := bandText(lines)
-	for _, want := range []string{"⚑ bottleneck", "Window(5m)", "try parallelism", "TimeoutException", "1m00s ago", "no free slots"} {
+	for _, want := range []string{"⚑ bottleneck", "Window(5m)", "TimeoutException", "1m00s ago", "no free slots"} {
 		if !strings.Contains(txt, want) {
 			t.Errorf("band missing %q:\n%s", want, txt)
 		}
 	}
 	if strings.Contains(txt, "\tat org.apache") {
 		t.Errorf("stack trace leaked into the band:\n%s", txt)
+	}
+	if strings.Contains(txt, "try parallelism") {
+		t.Errorf("advice belongs on its own line, not in the band:\n%s", txt)
 	}
 }
 
@@ -147,5 +150,60 @@ func TestFrameStatusIsJustTheState(t *testing.T) {
 	d.band = jobBand{known: true, restarts: 2, uptime: 3_840_000}
 	if got := d.frameStatus(); got != "RUNNING" {
 		t.Fatalf("frame status = %q; the band owns the detail", got)
+	}
+}
+
+// A banner should teach the key that acts on it: over half of each page's
+// keys are invisible until the operator opens the help overlay.
+func TestBandLinesCarryTheirKey(t *testing.T) {
+	job, b := healthyBand()
+	now := time.Now().UnixMilli()
+	b.ckpt.History = []model.Checkpoint{{ID: 3, Status: "FAILED", TriggerTimestamp: now, FailureMessage: "expired"}}
+	b.exc = model.Exceptions{RootException: "java.lang.OutOfMemoryError", Timestamp: now}
+	job.StatusCounts = map[string]int{"RUNNING": 1, "DEPLOYING": 3}
+
+	lines := bandLines(job, b, 2, "Window(5m)", []analyze.Advice{{Text: "try parallelism 8 → 16"}})
+	hints := map[string]string{}
+	for _, l := range lines {
+		hints[l.text] = l.hint
+	}
+	for text, want := range map[string]string{
+		"ckpt FAILED":   "c", // the checkpoints view
+		"bottleneck":    "d", // the skew distribution
+		"root:":         "x", // exceptions
+		"tasks RUNNING": "t", // subtasks
+	} {
+		found := false
+		for line, hint := range hints {
+			if strings.Contains(line, text) {
+				found = true
+				if !strings.Contains(hint, want) {
+					t.Errorf("line %q hints %q, want the %q key", line, hint, want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no band line matched %q", text)
+		}
+	}
+	if hints[lines[0].text] != "" {
+		t.Errorf("the healthy summary has no action to teach, got hint %q", hints[lines[0].text])
+	}
+}
+
+// The hint is the first thing dropped when the terminal is narrow: the
+// finding matters more than the lesson.
+func TestBandHintDroppedBeforeTheFinding(t *testing.T) {
+	line := bandLine{text: "⚠ ckpt FAILED 4m ago (Checkpoint expired before completing)", hint: "c for checkpoints"}
+	wide := renderBandLine(line, 120)
+	if !strings.Contains(wide, "ckpt FAILED") || !strings.Contains(wide, "c for checkpoints") {
+		t.Fatalf("wide render = %q", wide)
+	}
+	narrow := renderBandLine(line, 50)
+	if strings.Contains(narrow, "for checkpoints") {
+		t.Errorf("narrow render kept the hint: %q", narrow)
+	}
+	if !strings.Contains(narrow, "ckpt FAILED") {
+		t.Errorf("narrow render lost the finding: %q", narrow)
 	}
 }
