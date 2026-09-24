@@ -87,6 +87,7 @@ retrying with backoff until the cluster answers.
 
 | Key | Action |
 |-----|--------|
+| (jobs list) | a verdict line leads the list: `● HEALTHY — 4 running · no alerts · checkpoints current`, or `● NEEDS ATTENTION — 1 of 4 jobs: orders (2/5 tasks running)` naming what is wrong |
 | `enter` | drill into selected job (vertices + backpressure + a pre-backpressure early warning from soft-bp/mailbox-latency) |
 | `l` | logs, k9s-style: JobManager log from the jobs view; a TaskManager's log from the `:tm` list — `F` lists rotated files, `o` tails stdout |
 | `L` | merged job logs: tails every TaskManager running the job's subtasks, timestamp-merged with per-TM tags — kubectl-logs for a Flink job |

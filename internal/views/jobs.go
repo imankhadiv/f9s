@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/imankhadiv/f9s/internal/model"
+	"github.com/imankhadiv/f9s/internal/sentinel"
 	"github.com/imankhadiv/f9s/internal/ui/styles"
 	"github.com/imankhadiv/f9s/internal/uitable"
 )
@@ -43,6 +44,20 @@ type jobExtraMsg struct {
 	owner *Jobs
 	jid   string
 	extra jobExtra
+}
+
+// verdict summarises the cluster for the top of the list: the landing
+// screen should answer "is anything wrong" before the operator reads rows.
+// History views describe completed jobs, so they get no verdict.
+func (j *Jobs) verdict() (string, string) {
+	if j.title == "history" {
+		return "", ""
+	}
+	var alerts []sentinel.Alert
+	if j.deps.Sentinel != nil {
+		alerts = j.deps.Sentinel.OpenAlerts()
+	}
+	return jobsVerdict(j.all, j.extras, alerts)
 }
 
 // Jobs is the default view: every job on the cluster, problems first.
@@ -540,6 +555,14 @@ func (j *Jobs) View(width, height int) string {
 		used := 0
 		if j.filterOn || j.filter.Value() != "" {
 			out += j.filter.View() + "\n"
+			used++
+		}
+		if txt, level := j.verdict(); txt != "" {
+			style := styles.OKText()
+			if level == "crit" {
+				style = styles.ErrText()
+			}
+			out += " " + style.Render(truncate(txt, max(10, iw-2))) + "\n"
 			used++
 		}
 		if j.err != "" {
