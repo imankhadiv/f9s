@@ -216,6 +216,23 @@ func (m *Model) SetSize(width, height int) {
 // callers can keep indexing their unfiltered backing slice.
 func (m *Model) Cursor() int { return m.visibleIdx(m.cursor) }
 
+// SetCursor moves the cursor to an ORIGINAL row index (the same space
+// Cursor reports), ignoring rows the filter hides.
+func (m *Model) SetCursor(row int) {
+	if m.vis == nil {
+		m.cursor = row
+		m.clamp()
+		return
+	}
+	for pos, orig := range m.vis {
+		if orig == row {
+			m.cursor = pos
+			m.clamp()
+			return
+		}
+	}
+}
+
 // Len returns the number of visible rows (all rows without a filter).
 func (m *Model) Len() int { return m.visibleCount() }
 

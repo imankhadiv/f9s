@@ -71,6 +71,89 @@ type JobDetail struct {
 	err        string
 }
 
+// selectedVertex is the vertex the operator can SEE selected: the
+// highlighted box in graph mode, the table cursor otherwise. Every
+// drill-down key goes through this — reading the table cursor while the
+// graph is on targets a vertex that is not on screen.
+func (d *JobDetail) selectedVertex() (model.Vertex, bool) {
+	if len(d.job.Vertices) == 0 {
+		return model.Vertex{}, false
+	}
+	if d.showGraph && d.graph != nil {
+		if vid := d.graph.Selected(); vid != "" {
+			for _, v := range d.job.Vertices {
+				if v.ID == vid {
+					return v, true
+				}
+			}
+		}
+	}
+	i := d.tbl.Cursor()
+	if i < 0 || i >= len(d.job.Vertices) {
+		return model.Vertex{}, false
+	}
+	return d.job.Vertices[i], true
+}
+
+// toggleGraph switches between the table and the boxes, carrying the
+// selection across so the two never disagree.
+func (d *JobDetail) toggleGraph() tea.Cmd {
+	if d.showGraph { // graph → table: move the cursor to the highlighted box
+		if d.graph != nil {
+			for i, v := range d.job.Vertices {
+				if v.ID == d.graph.Selected() {
+					d.tbl.SetCursor(i)
+					break
+				}
+			}
+		}
+		d.showGraph = false
+		return nil
+	}
+	d.showGraph = true
+	var cmd tea.Cmd
+	if d.graph == nil {
+		d.graph = NewEmbeddedDag(d.deps, d.jid, d.name)
+		cmd = d.graph.Init()
+	}
+	if v, ok := d.selectedVertex(); ok {
+		d.graph.Select(v.ID)
+	}
+	d.applyStats()
+	return cmd
+}
+
+// applyStats hands the embedded graph the samples the job page already has.
+func (d *JobDetail) applyStats() {
+	if d.graph == nil {
+		return
+	}
+	for vid, info := range d.bp {
+		d.graph.SetStat(vid, dagStat{
+			level:   info.level,
+			bpMax:   info.pct,
+			busyMax: busyPct(info.busy),
+			skew:    skewOf(info.recs),
+		})
+	}
+}
+
+// busyPct converts busyTimeMsPerSecond to a percentage (-1 unknown).
+func busyPct(busy float64) int {
+	if busy < 0 {
+		return -1
+	}
+	return int(busy / 10)
+}
+
+// skewOf scores a per-subtask distribution (-1 when not applicable).
+func skewOf(recs []float64) int {
+	if len(recs) < 2 {
+		return -1
+	}
+	return analyze.SkewScore(recs)
+}
+
 // NewJobDetail builds the detail view for one job.
 func NewJobDetail(deps Deps, jid, name string) *JobDetail {
 	tbl := newTable([]uitable.Column{
@@ -98,8 +181,7 @@ func (d *JobDetail) Bindings() []key.Binding {
 		binding("ctrl+x", "ctrl-x", "cancel"),
 		binding("a", "a", "AI"),
 		binding("b", "b", "bp history"),
-		binding("G", "G", "graph (toggle)"),
-		binding("g", "g", "DAG"),
+		binding("g", "g", "graph (toggle)"),
 		binding("L", "L", "job logs"),
 		binding("i", "i", "job config"),
 		binding("O", "O", "config resolution"),
@@ -197,6 +279,10 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case backpressureMsg:
 		d.bp[msg.vid] = bpInfo{level: msg.level, pct: msg.pct, busy: msg.busy, wm: msg.wm, recs: msg.recs, mboxP99: msg.mboxP99, softBP: msg.softBP, debloat: msg.debloat}
 		d.rebuildRows()
+		if d.showGraph && d.graph != nil { // one sampler feeds both renderers
+			d.graph.SetStat(msg.vid, dagStat{level: msg.level, bpMax: msg.pct,
+				busyMax: busyPct(msg.busy), skew: skewOf(msg.recs)})
+		}
 		return d, nil
 
 	case dagMsg, dagStatMsg:
@@ -212,20 +298,15 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// DagView; G/g and everything else stay job-detail actions.
 		if d.showGraph && d.graph != nil {
 			switch msg.String() {
-			case "left", "right", "tab", "shift+tab", "R", "shift+left", "shift+right", "up", "down", "pgup", "pgdown", "home", "end":
+			case "left", "right", "tab", "shift+tab", "enter", "O", "shift+left", "shift+right", "up", "down", "pgup", "pgdown", "home", "end":
 				m, cmd := d.graph.Update(msg)
 				d.graph = m.(*DagView)
 				return d, cmd
 			}
 		}
 		switch msg.String() {
-		case "G":
-			d.showGraph = !d.showGraph
-			if d.showGraph && d.graph == nil {
-				d.graph = NewDagView(d.deps, d.jid, d.name)
-				return d, d.graph.Init()
-			}
-			return d, nil
+		case "g":
+			return d, d.toggleGraph()
 		case "c":
 			return d, push(NewCheckpoints(d.deps, d.jid, d.name))
 		case "x":
@@ -249,8 +330,6 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return d, push(NewAIMenu(d.deps, d.jid, d.name))
 		case "b":
 			return d, push(NewBPHistory(d.deps, d.jid, d.name, d.job.Vertices))
-		case "g":
-			return d, push(NewDagView(d.deps, d.jid, d.name))
 		case "L":
 			return d, push(NewJobLogs(d.deps, d.jid, d.name))
 		case "w":
@@ -288,34 +367,34 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return d, nil
 		case "t":
-			if len(d.job.Vertices) == 0 {
+			vt, ok := d.selectedVertex()
+			if !ok {
 				return d, nil
 			}
-			vt := d.job.Vertices[d.tbl.Cursor()]
 			return d, push(NewSubtasks(d.deps, d.jid, vt.ID, vt.Name))
 		case "y":
 			return d, push(NewDescribe(d.deps, d.name, d.job))
 		case "d":
-			if len(d.job.Vertices) == 0 {
+			v, ok := d.selectedVertex()
+			if !ok {
 				return d, nil
 			}
-			v := d.job.Vertices[d.tbl.Cursor()]
 			isSource := strings.HasPrefix(v.Name, "Source")
 			return d, push(NewSkewDetail(d.deps, d.jid, v.ID, v.Name, v.Parallelism, isSource))
 		case "e":
-			if len(d.job.Vertices) == 0 {
+			v, ok := d.selectedVertex()
+			if !ok {
 				return d, nil
 			}
-			v := d.job.Vertices[d.tbl.Cursor()]
 			return d, push(NewBufferCompare(d.deps, d.jid, v.ID, v.Name, v.Parallelism))
 		case "R":
 			if g := readOnlyGuard(d.deps); g != nil {
 				return d, g
 			}
-			if len(d.job.Vertices) == 0 {
+			v, ok := d.selectedVertex()
+			if !ok {
 				return d, nil
 			}
-			v := d.job.Vertices[d.tbl.Cursor()]
 			jid, jobName := d.jid, d.name
 			return d, func() tea.Msg {
 				return RescaleMsg{JID: jid, Job: jobName, VID: v.ID, Vertex: v.Name, Current: v.Parallelism}

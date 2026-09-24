@@ -64,6 +64,9 @@ type DagView struct {
 	ready   bool
 	err     string
 
+	// embedded: the job page owns the sampling and pushes stats in, so the
+	// graph must not fetch per-vertex metrics a second time.
+	embedded   bool
 	auto       dagAuto // operator autoscaler state for this job (via kubectl)
 	autoAt     time.Time
 	loadKube   func(string) ([]kube.FlinkDeployment, error)
@@ -87,6 +90,32 @@ type dagAutoMsg struct{ auto dagAuto }
 
 // autoRefreshEvery throttles the kubectl lookups behind the autoscaler overlay.
 const autoRefreshEvery = 30 * time.Second
+
+// NewEmbeddedDag builds a graph rendered inside the job page: same view,
+// but the job page feeds it samples instead of it fetching its own.
+func NewEmbeddedDag(deps Deps, jid, name string) *DagView {
+	d := NewDagView(deps, jid, name)
+	d.embedded = true
+	return d
+}
+
+// SetStat injects one vertex's sampled state (embedded mode).
+func (d *DagView) SetStat(vid string, st dagStat) {
+	d.stats[vid] = st
+	if d.ready {
+		d.vp.SetContent(d.render(d.vp.Width))
+	}
+}
+
+// Selected is the vertex id of the highlighted box.
+func (d *DagView) Selected() string { return d.selVID }
+
+// Select highlights a vertex by id.
+func (d *DagView) Select(vid string) {
+	if vid != "" {
+		d.selVID = vid
+	}
+}
 
 // NewDagView builds the DAG view for one job.
 func NewDagView(deps Deps, jid, name string) *DagView {
@@ -221,6 +250,9 @@ func (d *DagView) recommendation(vid string, par int) (to int, source string) {
 // sampleCmds fetches per-vertex backpressure, busy-max and skew in parallel so
 // each box shows the same live metrics as the Flink Web UI overview graph.
 func (d *DagView) sampleCmds() tea.Cmd {
+	if d.embedded {
+		return nil // the job page samples these; see JobDetail.applyStats
+	}
 	cl := d.deps.CL
 	jid := d.jid
 	cmds := make([]tea.Cmd, 0, len(d.job.Vertices))
