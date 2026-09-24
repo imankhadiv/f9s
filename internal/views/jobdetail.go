@@ -66,7 +66,9 @@ type JobDetail struct {
 	applied    int
 	slots      int // free slots at last refresh (-1 unknown)
 	advice     []analyze.Advice
-	graph      *DagView // embedded boxed graph, shown when showGraph (G toggles)
+	band       jobBand   // extra signals behind the status band
+	bandAt     time.Time // last band sample
+	graph      *DagView  // embedded boxed graph, shown when showGraph (g toggles)
 	showGraph  bool
 	err        string
 }
@@ -211,10 +213,14 @@ func (d *JobDetail) Refresh() tea.Cmd {
 		}
 		return jobDetailMsg{gen: gen, job: job, slots: slots, err: err}
 	}
-	if d.showGraph && d.graph != nil {
-		return tea.Batch(fetch, d.graph.Refresh())
+	cmds := []tea.Cmd{fetch}
+	if c := d.bandCmd(); c != nil {
+		cmds = append(cmds, c)
 	}
-	return fetch
+	if d.showGraph && d.graph != nil {
+		cmds = append(cmds, d.graph.Refresh())
+	}
+	return tea.Batch(cmds...)
 }
 
 // backpressureCmds samples backpressure for every vertex in parallel.
@@ -275,6 +281,10 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		d.slots = msg.slots
 		d.rebuildRows()
 		return d, d.backpressureCmds()
+
+	case jobBandMsg:
+		d.band = msg.band
+		return d, nil
 
 	case backpressureMsg:
 		d.bp[msg.vid] = bpInfo{level: msg.level, pct: msg.pct, busy: msg.busy, wm: msg.wm, recs: msg.recs, mboxP99: msg.mboxP99, softBP: msg.softBP, debloat: msg.debloat}
@@ -570,34 +580,53 @@ func (d *JobDetail) View(width, height int) string {
 	if d.showGraph && d.graph != nil { // G-toggled boxed graph, framed by the graph itself
 		return d.graph.View(width, height)
 	}
-	return framed(width, height, d.name, -1, d.job.State+" · up "+model.FmtDuration(d.job.Duration), d.viewBody)
+	return framed(width, height, d.name, -1, d.frameStatus(), d.viewBody)
 }
+
+// frameStatus is the frame's right-hand summary. The status band below it
+// carries the detail (uptime since the last restart, checkpoints, slots),
+// so the border stays a single word rather than repeating the band.
+func (d *JobDetail) frameStatus() string { return d.job.State }
 
 func (d *JobDetail) viewBody(width, height int) string {
 	// Full JID on the first line on purpose: it's what gets pasted into flink
 	// CLI commands (the job name is now in the frame border).
-	out := " " + styles.Dim().Render(d.jid) + "  " +
-		styles.StateStyle(d.job.State).Render(d.job.State) +
-		styles.Dim().Render(" · up "+model.FmtDuration(d.job.Duration)) + "\n"
+	out := " " + styles.Dim().Render(d.jid) + "\n"
 	used := 1
+	bottleneck := ""
+	if d.bottleneck >= 0 && d.bottleneck < len(d.job.Vertices) {
+		bottleneck = d.job.Vertices[d.bottleneck].Name
+	}
+	for i, l := range bandLines(d.job, d.band, d.slots, bottleneck, d.advice) {
+		style := styles.Dim()
+		switch l.level {
+		case "warn":
+			style = styles.WarnText()
+		case "crit":
+			style = styles.ErrText()
+		}
+		if i == 0 { // the summary leads with the job state in its own colour
+			state := styles.StateStyle(d.job.State).Render(d.job.State)
+			out += " " + state + styles.Dim().Render(strings.TrimPrefix(l.text, d.job.State)) + "\n"
+		} else {
+			out += " " + style.Render(truncate(l.text, max(10, width-2))) + "\n"
+		}
+		used++
+	}
 	if d.showConfig && d.jobCfg != nil {
 		ec := d.jobCfg.ExecutionConfig
 		out += styles.Dim().Render(fmt.Sprintf(" restart-strategy: %s · job-parallelism %d · object-reuse %v · user-config keys %d",
 			ec.RestartStrategy, ec.JobParallelism, ec.ObjectReuse, len(ec.UserConfig))) + "\n"
 		used++
 	}
-	if d.bottleneck >= 0 && d.bottleneck < len(d.job.Vertices) {
-		out += styles.WarnText().Render("⚑ bottleneck: "+d.job.Vertices[d.bottleneck].Name) +
-			styles.Dim().Render("  (busy but not backpressured — the slow stage)") + "\n"
-		used++
-		for _, adv := range d.advice {
-			style := styles.WarnText()
-			if adv.Severity == "info" {
-				style = styles.Dim()
-			}
-			out += style.Render("  ↳ "+adv.Text) + "\n"
-			used++
+	// remaining advice beyond the one the band carries
+	for _, adv := range d.advice[min(1, len(d.advice)):] {
+		style := styles.WarnText()
+		if adv.Severity == "info" {
+			style = styles.Dim()
 		}
+		out += " " + style.Render(truncate("↳ "+adv.Text, max(10, width-2))) + "\n"
+		used++
 	}
 	// pre-backpressure early warning: soft backpressure or a hot mailbox
 	// while the sampled level still reads OK — buffers are filling and hard
@@ -624,8 +653,7 @@ func (d *JobDetail) viewBody(width, height int) string {
 				}
 				detail += fmt.Sprintf("~%dms of buffered data queued (debloat estimate)", int(bp.debloat))
 			}
-			out += styles.WarnText().Render("⚠ early warning: "+v.Name) +
-				styles.Dim().Render("  buffers filling ("+detail+") — backpressure likely next") + "\n"
+			out += " " + styles.WarnText().Render(truncate("⚠ early warning: "+v.Name+" — buffers filling ("+detail+"), backpressure likely next", max(10, width-2))) + "\n"
 			used++
 			break // one banner; the worst offender is enough
 		}
