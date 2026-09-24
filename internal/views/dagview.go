@@ -41,6 +41,7 @@ type dagStat struct {
 }
 
 type dagStatMsg struct {
+	gen  int // fetch generation: samples from a previous refresh are dropped
 	vid  string
 	stat dagStat
 }
@@ -67,6 +68,7 @@ type DagView struct {
 	// embedded: the job page owns the sampling and pushes stats in, so the
 	// graph must not fetch per-vertex metrics a second time.
 	embedded   bool
+	gen        int     // sample generation, so a slow reply can't mix ages
 	auto       dagAuto // operator autoscaler state for this job (via kubectl)
 	autoAt     time.Time
 	loadKube   func(string) ([]kube.FlinkDeployment, error)
@@ -255,6 +257,8 @@ func (d *DagView) sampleCmds() tea.Cmd {
 	}
 	cl := d.deps.CL
 	jid := d.jid
+	d.gen++
+	gen := d.gen
 	cmds := make([]tea.Cmd, 0, len(d.job.Vertices))
 	for _, v := range d.job.Vertices {
 		vid, par := v.ID, v.Parallelism
@@ -279,7 +283,7 @@ func (d *DagView) sampleCmds() tea.Cmd {
 			if recs, err := cl.VertexSubtaskRecords(jid, vid, par); err == nil {
 				st.skew = analyze.SkewScore(recs)
 			}
-			return dagStatMsg{vid: vid, stat: st}
+			return dagStatMsg{gen: gen, vid: vid, stat: st}
 		})
 	}
 	return tea.Batch(cmds...)
@@ -311,6 +315,9 @@ func (d *DagView) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return d, nil
 	case dagStatMsg:
+		if msg.gen != d.gen { // a reply from a refresh that has been superseded
+			return d, nil
+		}
 		d.stats[msg.vid] = msg.stat
 		if d.ready {
 			d.vp.SetContent(d.render(d.vp.Width))

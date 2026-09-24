@@ -696,6 +696,31 @@ func (c *Client) VertexOutRates(jid, vid string) (recs, bytes float64, err error
 	return c.vertexRate(jid, vid, "Out")
 }
 
+// VertexRates fetches a vertex's input AND output record rates in one
+// request — the job page wants both per vertex every refresh, and two calls
+// per vertex is the kind of fan-out that hurts a struggling JobManager.
+// Unreported metrics come back as -1.
+func (c *Client) VertexRates(jid, vid string) (in, out float64, err error) {
+	ms, err := c.MetricValues("/jobs/"+jid+"/vertices/"+vid+"/subtasks/metrics",
+		[]string{"numRecordsInPerSecond", "numRecordsOutPerSecond"})
+	if err != nil {
+		return -1, -1, err
+	}
+	in, out = -1, -1
+	for _, m := range ms {
+		if m.Sum == nil {
+			continue
+		}
+		switch m.ID {
+		case "numRecordsInPerSecond":
+			in = *m.Sum
+		case "numRecordsOutPerSecond":
+			out = *m.Sum
+		}
+	}
+	return in, out, nil
+}
+
 func (c *Client) vertexRate(jid, vid, dir string) (recs, bytes float64, err error) {
 	ms, err := c.MetricValues("/jobs/"+jid+"/vertices/"+vid+"/subtasks/metrics",
 		[]string{"numRecords" + dir + "PerSecond", "numBytes" + dir + "PerSecond"})

@@ -113,6 +113,10 @@ retrying with backoff until the cluster answers.
 | `R` | rescale vertex live (FLIP-291, needs adaptive scheduler) |
 | `Q` | SQL Gateway console (needs `sqlGateway:` in the context) |
 | `K` | Flink Kubernetes Operator tree (via kubectl; needs `kubeContext:` in the context) — see [below](#kubernetes-operator) |
+| `i` | job config: restart strategy, job parallelism, object reuse, user-config size (in job detail) |
+| `y` | describe: the raw job/TaskManager object f9s fetched, for when you need the field f9s doesn't show |
+| `h` | job archaeology: what this job looked like across its past runs |
+| `P` | flame graph: a 15s async-profiler run on a TaskManager (Flink 1.19+, `rest.profiling.enabled`) |
 | `/` | filter jobs |
 | `:` | command mode — a dropdown lists the matching commands with their descriptions as you type (`:` alone shows all of them); `↑↓` selects, `tab` completes, `enter` runs the highlighted one. Commands: `:jobs` `:cluster` `:tms` `:savepoints` `:contexts` `:k8s` `:sql` `:log` `:alerts` `:investigations` `:config` `:jars` `:jmlog` `:timeline` `:doctor` `:ask` `:pulse` `:waste` `:fleet` `:history` `:quit`, plus short aliases (`:j` `:sp` `:tm` `:ctx`). A prefix matching several destinations names them rather than guessing: `:c` answers `cluster · contexts · log · config · ask · waste` instead of silently picking one |
 | `:timeline` | the merged incident feed — alerts, actions, config changes, operator autoscaler decisions (with flapping flagged), AI investigations, chronologically; `E` exports a markdown postmortem draft |

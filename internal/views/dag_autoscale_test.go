@@ -123,3 +123,20 @@ func TestDagPinProposesOverrideForSelectedVertex(t *testing.T) {
 		t.Fatalf("unlinked job must explain why O does nothing, got %#v", cmd())
 	}
 }
+
+// A sample from a superseded refresh must not land: mixing ages would draw
+// boxes whose numbers never coexisted.
+func TestDagDropsStaleSamples(t *testing.T) {
+	d := NewDagView(Deps{Metrics: metricts.New(0)}, "j", "job")
+	d.job = model.Job{Vertices: []model.Vertex{{ID: "v1", Name: "V", Parallelism: 1}}}
+	d.sampleCmds() // generation 1
+	d.Update(dagStatMsg{gen: d.gen, vid: "v1", stat: dagStat{level: "high", busyMax: 90}})
+	if d.stats["v1"].busyMax != 90 {
+		t.Fatal("current-generation sample was dropped")
+	}
+	d.sampleCmds() // generation 2 in flight
+	d.Update(dagStatMsg{gen: d.gen - 1, vid: "v1", stat: dagStat{level: "ok", busyMax: 1}})
+	if got := d.stats["v1"].busyMax; got != 90 {
+		t.Fatalf("stale sample overwrote the current one: busy %d", got)
+	}
+}

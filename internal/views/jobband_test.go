@@ -207,3 +207,25 @@ func TestBandHintDroppedBeforeTheFinding(t *testing.T) {
 		t.Errorf("narrow render lost the finding: %q", narrow)
 	}
 }
+
+// The vertex table shows rates, not lifetime counters: "1.2B records since
+// start" is not a number anyone acts on.
+func TestVertexTableShowsRates(t *testing.T) {
+	d := NewJobDetail(Deps{}, "j", "orders")
+	d.Update(jobDetailMsg{gen: d.gen, slots: 2, job: model.Job{State: "RUNNING", Vertices: []model.Vertex{
+		{ID: "v1", Name: "Source", Parallelism: 2, Metrics: model.VertexMetrics{ReadRecords: 1_200_000_000, WriteRecords: 1_200_000_000}},
+	}}})
+	d.Update(backpressureMsg{vid: "v1", level: "ok", pct: 0, busy: 100,
+		recs: []float64{5900, 6500}, inRecs: 12400, outRecs: 12400, mboxP99: -1, softBP: -1, debloat: -1})
+
+	body := d.View(180, 24)
+	if !strings.Contains(body, "IN/s") || !strings.Contains(body, "OUT/s") {
+		t.Fatalf("table headers still show lifetime counters:\n%s", body)
+	}
+	if !strings.Contains(body, "12.4k") {
+		t.Errorf("out rate missing:\n%s", body)
+	}
+	if strings.Contains(body, "1200000000") {
+		t.Errorf("lifetime counter still rendered:\n%s", body)
+	}
+}

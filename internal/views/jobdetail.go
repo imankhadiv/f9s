@@ -35,6 +35,8 @@ type backpressureMsg struct {
 	busy    float64   // avg busyTimeMsPerSecond; -1 when unreported
 	wm      int64     // min currentInputWatermark epoch ms; 0 none
 	recs    []float64 // per-subtask numRecordsInPerSecond (nil for parallelism 1)
+	inRecs  float64   // numRecordsInPerSecond (vertex total); -1 unknown
+	outRecs float64   // numRecordsOutPerSecond; -1 unknown
 	mboxP99 float64   // worst-subtask mailbox p99 ms; -1 unknown
 	softBP  float64   // worst-subtask soft-backpressure ms/s; -1 unknown
 	debloat float64   // estimatedTimeToConsumeBuffersMs; -1 when debloating is off
@@ -46,6 +48,8 @@ type bpInfo struct {
 	busy    float64 // avg busyTimeMsPerSecond; -1 unknown
 	wm      int64   // min currentInputWatermark epoch ms; 0 none
 	recs    []float64
+	inRecs  float64 // numRecordsInPerSecond (vertex total); -1 unknown
+	outRecs float64 // numRecordsOutPerSecond; -1 unknown
 	mboxP99 float64 // worst-subtask mailbox p99 ms; -1 unknown
 	softBP  float64 // worst-subtask soft-backpressure ms/s; -1 unknown
 	debloat float64 // estimatedTimeToConsumeBuffersMs; -1 when debloating is off
@@ -140,6 +144,14 @@ func (d *JobDetail) applyStats() {
 	}
 }
 
+// rateCell renders a records/s value, dim when unknown.
+func rateCell(v float64) uitable.Cell {
+	if v < 0 {
+		return uitable.Styled("-", styles.Dim())
+	}
+	return uitable.Plain(fmtRate(v))
+}
+
 // busyPct converts busyTimeMsPerSecond to a percentage (-1 unknown).
 func busyPct(busy float64) int {
 	if busy < 0 {
@@ -166,8 +178,8 @@ func NewJobDetail(deps Deps, jid, name string) *JobDetail {
 		{Title: "BUSY", Width: 5},
 		{Title: "WM LAG", Width: 8},
 		{Title: "SKEW", Width: 10},
-		{Title: "REC IN", Width: 10},
-		{Title: "REC OUT", Width: 10},
+		{Title: "IN/s", Width: 9, Right: true},
+		{Title: "OUT/s", Width: 9, Right: true},
 	})
 	return &JobDetail{deps: deps, jid: jid, name: name, bp: map[string]bpInfo{}, bottleneck: -1, tbl: tbl}
 }
@@ -235,7 +247,7 @@ func (d *JobDetail) backpressureCmds() tea.Cmd {
 		cmds = append(cmds, func() tea.Msg {
 			bp, err := cl.Backpressure(jid, vid)
 			if err != nil {
-				return backpressureMsg{vid: vid, level: "", pct: -1, busy: -1}
+				return backpressureMsg{vid: vid, level: "", pct: -1, busy: -1, inRecs: -1, outRecs: -1}
 			}
 			busy, err := cl.VertexBusy(jid, vid)
 			if err != nil {
@@ -249,11 +261,16 @@ func (d *JobDetail) backpressureCmds() tea.Cmd {
 			if err != nil {
 				recs = nil
 			}
+			inRecs, outRecs, rerr := cl.VertexRates(jid, vid)
+			if rerr != nil {
+				inRecs, outRecs = -1, -1
+			}
 			p99, softBP, debloat, err := cl.VertexMailbox(jid, vid)
 			if err != nil {
 				p99, softBP, debloat = -1, -1, -1
 			}
-			return backpressureMsg{vid: vid, level: bp.Level(), pct: bp.MaxRatioPercent(), busy: busy, wm: wm, recs: recs, mboxP99: p99, softBP: softBP, debloat: debloat}
+			return backpressureMsg{vid: vid, level: bp.Level(), pct: bp.MaxRatioPercent(), busy: busy, wm: wm,
+				recs: recs, inRecs: inRecs, outRecs: outRecs, mboxP99: p99, softBP: softBP, debloat: debloat}
 		})
 	}
 	return tea.Batch(cmds...)
@@ -288,7 +305,8 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return d, nil
 
 	case backpressureMsg:
-		d.bp[msg.vid] = bpInfo{level: msg.level, pct: msg.pct, busy: msg.busy, wm: msg.wm, recs: msg.recs, mboxP99: msg.mboxP99, softBP: msg.softBP, debloat: msg.debloat}
+		d.bp[msg.vid] = bpInfo{level: msg.level, pct: msg.pct, busy: msg.busy, wm: msg.wm, recs: msg.recs,
+			inRecs: msg.inRecs, outRecs: msg.outRecs, mboxP99: msg.mboxP99, softBP: msg.softBP, debloat: msg.debloat}
 		d.rebuildRows()
 		if d.showGraph && d.graph != nil { // one sampler feeds both renderers
 			d.graph.SetStat(msg.vid, dagStat{level: msg.level, bpMax: msg.pct,
@@ -547,8 +565,8 @@ func (d *JobDetail) rebuildRows() {
 			busyCell(bp.busy),
 			wmCell(bp.wm),
 			skewCell(bp.recs),
-			uitable.Plain(fmt.Sprint(v.Metrics.ReadRecords)),
-			uitable.Plain(fmt.Sprint(v.Metrics.WriteRecords)),
+			rateCell(bp.inRecs),
+			rateCell(bp.outRecs),
 		})
 	}
 	d.tbl.SetRowsKeyed(rows, keys)
