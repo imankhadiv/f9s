@@ -44,19 +44,12 @@ func TestDrillDownFollowsTheVisibleSelection(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s pushed nothing: %#v", k, cmd())
 		}
-		var vid string
-		switch v := pm.M.(type) {
-		case *SkewDetail:
-			vid = v.vid
-		case *BufferCompare:
-			vid = v.vid
-		case *Subtasks:
-			vid = v.vid
-		default:
-			t.Fatalf("%s pushed %T", k, pm.M)
+		live, ok := pm.M.(*VertexLive)
+		if !ok {
+			t.Fatalf("%s pushed %T, want the vertex inspector", k, pm.M)
 		}
-		if vid != "v-sink" {
-			t.Errorf("%s drilled into %q, want the highlighted v-sink", k, vid)
+		if live.vid != "v-sink" {
+			t.Errorf("%s drilled into %q, want the highlighted v-sink", k, live.vid)
 		}
 	}
 }
@@ -187,4 +180,22 @@ func TestRescaleTargetsTheVisibleSelection(t *testing.T) {
 
 func readWriteCfg() *config.Config {
 	return &config.Config{Contexts: map[string]config.Context{"dev": {}}}
+}
+
+func TestEnterFromTableOpensTheInspector(t *testing.T) {
+	d := detailWithVertices()
+	d.tbl.SetCursor(1)
+
+	_, cmd := d.Update(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("enter must open the vertex inspector from the table too")
+	}
+	pm, ok := cmd().(PushMsg)
+	if !ok {
+		t.Fatalf("enter produced %#v", cmd())
+	}
+	live, ok := pm.M.(*VertexLive)
+	if !ok || live.vid != "v-window" || live.par != 4 {
+		t.Fatalf("enter pushed %#v", pm.M)
+	}
 }

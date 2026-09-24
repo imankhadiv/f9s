@@ -16,12 +16,18 @@ import (
 	"github.com/imankhadiv/f9s/internal/ui/styles"
 )
 
-// Tabs of the live vertex inspector.
+// Tabs of the live vertex inspector. Everything that used to be a separate
+// per-vertex view lives here, so "inspect this vertex" is one destination.
 const (
 	tabMetrics = iota
+	tabSubtasks
+	tabSkew
+	tabBuffers
 	tabRows
 	tabCount
 )
+
+var tabNames = [tabCount]string{"metrics", "subtasks", "skew", "bp edge", "rows"}
 
 const (
 	// rowsKept is how many stdout lines per TaskManager the rows tab holds.
@@ -74,6 +80,10 @@ type VertexLive struct {
 	par      int
 
 	tab      int
+	subtasks *Subtasks      // tabSubtasks, built on first use
+	skew     *SkewDetail    // tabSkew
+	bufs     *BufferCompare // tabBuffers
+	isSource bool
 	stats    vertexStats
 	tms      []string
 	rows     []rowLine
@@ -89,25 +99,85 @@ type VertexLive struct {
 
 // NewVertexLive builds the inspector for one vertex of a job.
 func NewVertexLive(deps Deps, jid, job, vid, name string, parallelism int) *VertexLive {
-	return &VertexLive{deps: deps, jid: jid, job: job, vid: vid, name: name, par: parallelism, perSec: -1}
+	return &VertexLive{deps: deps, jid: jid, job: job, vid: vid, name: name, par: parallelism, perSec: -1,
+		isSource: strings.HasPrefix(name, "Source")}
+}
+
+// NewVertexLiveTab opens the inspector straight on one tab — what the old
+// per-vertex keys (t, d, e) now do.
+func NewVertexLiveTab(deps Deps, jid, job, vid, name string, parallelism, tab int) *VertexLive {
+	v := NewVertexLive(deps, jid, job, vid, name, parallelism)
+	v.tab = tab
+	return v
+}
+
+// sub returns the sub-view backing the active tab, building it on first use;
+// cmd is its Init (nil when it already existed or the tab has no sub-view).
+func (v *VertexLive) sub() (Model, tea.Cmd) {
+	switch v.tab {
+	case tabSubtasks:
+		if v.subtasks == nil {
+			v.subtasks = NewSubtasks(v.deps, v.jid, v.vid, v.name)
+			return v.subtasks, v.subtasks.Init()
+		}
+		return v.subtasks, nil
+	case tabSkew:
+		if v.skew == nil {
+			v.skew = NewSkewDetail(v.deps, v.jid, v.vid, v.name, v.par, v.isSource)
+			return v.skew, v.skew.Init()
+		}
+		return v.skew, nil
+	case tabBuffers:
+		if v.bufs == nil {
+			v.bufs = NewBufferCompare(v.deps, v.jid, v.vid, v.name, v.par)
+			return v.bufs, v.bufs.Init()
+		}
+		return v.bufs, nil
+	}
+	return nil, nil
+}
+
+// subViews lists the sub-views built so far, so their own messages reach
+// them whichever tab is on screen.
+func (v *VertexLive) subViews() []Model {
+	var out []Model
+	if v.subtasks != nil {
+		out = append(out, v.subtasks)
+	}
+	if v.skew != nil {
+		out = append(out, v.skew)
+	}
+	if v.bufs != nil {
+		out = append(out, v.bufs)
+	}
+	return out
 }
 
 func (v *VertexLive) Title() string   { return "live(" + truncate(v.name, 24) + ")" }
 func (v *VertexLive) Filtering() bool { return false }
 func (v *VertexLive) Bindings() []key.Binding {
 	return []key.Binding{
-		binding("tab", "tab", "metrics / rows"),
-		binding("up", "↑↓/pgup", "scroll rows"),
-		binding("esc", "esc", "back to the graph"),
+		binding("tab", "tab", "metrics · subtasks · skew · bp edge · rows"),
+		binding("up", "↑↓/pgup", "scroll"),
+		binding("esc", "esc", "back"),
 	}
 }
 
-func (v *VertexLive) Init() tea.Cmd { return v.Refresh() }
+func (v *VertexLive) Init() tea.Cmd {
+	cmds := []tea.Cmd{v.Refresh()}
+	if _, cmd := v.sub(); cmd != nil { // opened straight on a sub-view tab
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
+}
 
 // Refresh samples the vertex; stdout is only read while the rows tab is open
 // and at most every rowsPoll (the endpoint returns the whole file).
 func (v *VertexLive) Refresh() tea.Cmd {
 	cmds := []tea.Cmd{v.sample()}
+	if s, _ := v.sub(); s != nil {
+		cmds = append(cmds, s.Refresh())
+	}
 	if v.tab == tabRows && time.Since(v.polledA) >= rowsPoll {
 		v.polledA = time.Now()
 		cmds = append(cmds, v.tailRows())
@@ -230,6 +300,19 @@ func rowsPerSec(prev, next int, elapsed time.Duration) float64 {
 }
 
 func (v *VertexLive) Update(msg tea.Msg) (Model, tea.Cmd) {
+	// a sub-view's own messages must reach it whichever tab is on screen
+	switch msg.(type) {
+	case vertexLiveMsg, vertexRowsMsg, tea.KeyMsg:
+	default:
+		for _, s := range v.subViews() {
+			m, cmd := s.Update(msg)
+			v.replaceSub(m)
+			if cmd != nil {
+				return v, cmd
+			}
+		}
+		return v, nil
+	}
 	switch msg := msg.(type) {
 	case vertexLiveMsg:
 		v.loaded = true
@@ -255,13 +338,23 @@ func (v *VertexLive) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return v, nil
 	case tea.KeyMsg:
-		if msg.String() == "tab" {
-			v.tab = (v.tab + 1) % tabCount
+		if msg.String() == "tab" || msg.String() == "shift+tab" {
+			step := 1
+			if msg.String() == "shift+tab" {
+				step = tabCount - 1
+			}
+			v.tab = (v.tab + step) % tabCount
 			if v.tab == tabRows {
 				v.polledA = time.Now()
 				return v, v.tailRows()
 			}
-			return v, nil
+			_, cmd := v.sub()
+			return v, cmd
+		}
+		if s, _ := v.sub(); s != nil { // the sub-view owns the keys on its tab
+			m, cmd := s.Update(msg)
+			v.replaceSub(m)
+			return v, cmd
 		}
 		if v.tab == tabRows && v.ready {
 			var cmd tea.Cmd
@@ -270,6 +363,18 @@ func (v *VertexLive) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	}
 	return v, nil
+}
+
+// replaceSub stores back the sub-view returned by its own Update.
+func (v *VertexLive) replaceSub(m Model) {
+	switch t := m.(type) {
+	case *Subtasks:
+		v.subtasks = t
+	case *SkewDetail:
+		v.skew = t
+	case *BufferCompare:
+		v.bufs = t
+	}
 }
 
 // ring returns the vertex's sampled history for a metric.
@@ -401,9 +506,8 @@ func (v *VertexLive) AIContext() (string, []string) {
 }
 
 func (v *VertexLive) View(width, height int) string {
-	tabs := []string{"metrics", "rows"}
 	head := " "
-	for i, t := range tabs {
+	for i, t := range tabNames {
 		if i == v.tab {
 			head += styles.Header().Render("["+t+"]") + " "
 		} else {
@@ -425,6 +529,12 @@ func (v *VertexLive) View(width, height int) string {
 		if v.err != "" {
 			out += errorBanner(v.err)
 			used++
+		}
+		if s, _ := v.sub(); s != nil {
+			if sub, ok := s.(*Subtasks); ok {
+				return out + sub.body(iw, max(1, ih-used))
+			}
+			return out + s.View(iw, max(1, ih-used))
 		}
 		if v.tab == tabMetrics {
 			if !v.loaded {

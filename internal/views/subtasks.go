@@ -145,14 +145,18 @@ type clientIface interface {
 }
 
 func (v *Subtasks) View(width, height int) string {
-	return framed(width, height, "Subtasks", v.tbl.Len(), v.vertex, func(iw, ih int) string {
-		out := ""
-		used := 0
-		if v.err != "" {
-			out += styles.ErrText().Render("⚠ "+v.err) + "\n"
-			used++
-		}
-		v.tbl.SetSize(iw, ih-used)
-		return out + v.tbl.View()
-	})
+	return framed(width, height, "Subtasks", v.tbl.Len(), v.vertex, v.body)
+}
+
+// body renders the table without a frame, so the vertex inspector can show
+// it as a tab inside its own frame.
+func (v *Subtasks) body(iw, ih int) string {
+	out := ""
+	used := 0
+	if v.err != "" {
+		out += styles.ErrText().Render("⚠ "+v.err) + "\n"
+		used++
+	}
+	v.tbl.SetSize(iw, ih-used)
+	return out + v.tbl.View()
 }

@@ -104,14 +104,12 @@ retrying with backoff until the cluster answers.
 | `A` | agentic investigate: the model drills deeper with read-only tools, every call shown |
 | `@` | ask AI: free-form chat about the job (or `:ask` cluster-wide) — starter questions, and it can propose actions you approve inline |
 | `b` | backpressure history sparklines (in job detail) |
-| `e` | the backpressure edge: a vertex's per-subtask buffer fingerprint — which subtasks are actually blocked, not just which vertex looks busy (in job detail) |
 | `g` | graph on/off: the execution graph as Flink-UI-style boxes, in place of the vertex table — per-operator parallelism, backpressure/busy/skew gauges, health-colored; each box shows the next parallelism (`⇒ N●` operator autoscaler decision, `⇒ N◐` its recommendation, `⇒ N~` f9s's own utilization estimate); `←→` selects a box, `enter` opens the live inspector for that vertex (rates, busy/backpressure, watermark lag, buffers, per-subtask bars and 5-minute sparklines — plus a `rows` tab that tails the stdout of the TaskManagers running *that* vertex, for jobs that print), `R` rescales it (FLIP-291), `O` pins its parallelism in the FlinkDeployment, `shift+←→` pans (in job detail) |
-| `t` | per-vertex subtask table: attempts, TaskManager, lifecycle durations; enter shows retained attempt history (in job detail) |
+| `enter` | inspect the selected vertex: one view with tabs — live metrics, subtasks (attempts, TaskManager, lifecycle), skew distribution with cause and fix, the backpressure edge, and printed rows. `t`/`d`/`e` open it directly on the subtasks/skew/bp-edge tab; `tab` cycles (in job detail) |
 | `O` | config resolution: the cluster→job→operator override chain per setting, with the winning layer marked (in job detail) |
 | `w` | watermark propagation debugger: per-vertex event-time lag, the first stalling vertex + why (job detail) |
 | `W` | what changed: the job's config journal — every parallelism/checkpoint/restart-strategy change ever observed, also flashed live and threaded into `:timeline` |
 | `R` | rescale vertex live (FLIP-291, needs adaptive scheduler) |
-| `d` | skew drill-down: per-subtask distribution + cause + fix |
 | `Q` | SQL Gateway console (needs `sqlGateway:` in the context) |
 | `K` | Flink Kubernetes Operator tree (via kubectl; needs `kubeContext:` in the context) — see [below](#kubernetes-operator) |
 | `/` | filter jobs |

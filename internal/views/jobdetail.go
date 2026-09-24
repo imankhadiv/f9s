@@ -183,16 +183,17 @@ func (d *JobDetail) Bindings() []key.Binding {
 		binding("ctrl+x", "ctrl-x", "cancel"),
 		binding("a", "a", "AI"),
 		binding("b", "b", "bp history"),
+		binding("enter", "enter", "inspect vertex"),
 		binding("g", "g", "graph (toggle)"),
 		binding("L", "L", "job logs"),
 		binding("i", "i", "job config"),
 		binding("O", "O", "config resolution"),
 		binding("W", "W", "what changed"),
 		binding("w", "w", "watermarks"),
-		binding("t", "t", "subtasks"),
+		binding("t", "t", "inspect: subtasks"),
 		binding("R", "R", "rescale vertex"),
-		binding("d", "d", "skew distribution"),
-		binding("e", "e", "bp edge"),
+		binding("d", "d", "inspect: skew"),
+		binding("e", "e", "inspect: bp edge"),
 		binding("y", "y", "describe"),
 		binding("esc", "esc", "back"),
 	}
@@ -317,6 +318,14 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 		switch msg.String() {
 		case "g":
 			return d, d.toggleGraph()
+		case "enter":
+			// same destination as enter on a graph box: one way to inspect
+			// the selected vertex, whichever renderer is on screen
+			v, ok := d.selectedVertex()
+			if !ok {
+				return d, nil
+			}
+			return d, push(NewVertexLive(d.deps, d.jid, d.name, v.ID, v.Name, v.Parallelism))
 		case "c":
 			return d, push(NewCheckpoints(d.deps, d.jid, d.name))
 		case "x":
@@ -376,12 +385,12 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			}
 			return d, nil
-		case "t":
+		case "t": // same destination as enter, opened on the subtasks tab
 			vt, ok := d.selectedVertex()
 			if !ok {
 				return d, nil
 			}
-			return d, push(NewSubtasks(d.deps, d.jid, vt.ID, vt.Name))
+			return d, push(NewVertexLiveTab(d.deps, d.jid, d.name, vt.ID, vt.Name, vt.Parallelism, tabSubtasks))
 		case "y":
 			return d, push(NewDescribe(d.deps, d.name, d.job))
 		case "d":
@@ -389,14 +398,13 @@ func (d *JobDetail) Update(msg tea.Msg) (Model, tea.Cmd) {
 			if !ok {
 				return d, nil
 			}
-			isSource := strings.HasPrefix(v.Name, "Source")
-			return d, push(NewSkewDetail(d.deps, d.jid, v.ID, v.Name, v.Parallelism, isSource))
+			return d, push(NewVertexLiveTab(d.deps, d.jid, d.name, v.ID, v.Name, v.Parallelism, tabSkew))
 		case "e":
 			v, ok := d.selectedVertex()
 			if !ok {
 				return d, nil
 			}
-			return d, push(NewBufferCompare(d.deps, d.jid, v.ID, v.Name, v.Parallelism))
+			return d, push(NewVertexLiveTab(d.deps, d.jid, d.name, v.ID, v.Name, v.Parallelism, tabBuffers))
 		case "R":
 			if g := readOnlyGuard(d.deps); g != nil {
 				return d, g

@@ -58,19 +58,21 @@ func TestVertexLiveTabSwitch(t *testing.T) {
 		t.Fatal("opens on metrics")
 	}
 	v.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if v.tab != tabRows {
-		t.Fatal("tab switches to rows")
+	if v.tab != tabSubtasks {
+		t.Fatalf("tab moves to the next tab, got %d", v.tab)
 	}
-	v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	for i := 0; i < tabCount-1; i++ {
+		v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
 	if v.tab != tabMetrics {
-		t.Fatal("tab cycles back to metrics")
+		t.Fatalf("a full cycle returns to metrics, got %d", v.tab)
 	}
 }
 
 func TestVertexLiveRowsTailsOnlyThisVertexTaskManagers(t *testing.T) {
 	v := liveView()
 	v.Update(vertexLiveMsg{tms: []string{"tm-a", "tm-b"}})
-	v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	v.tab = tabRows
 	v.Update(vertexRowsMsg{rows: []rowLine{
 		{tm: "tm-a", text: "+I[key-7, 41]"},
 		{tm: "tm-b", text: "+I[key-3, 12]"},
@@ -89,7 +91,7 @@ func TestVertexLiveRowsTailsOnlyThisVertexTaskManagers(t *testing.T) {
 func TestVertexLiveRowsExplainsWhenThereIsNothingToTail(t *testing.T) {
 	v := liveView()
 	v.Update(vertexLiveMsg{tms: []string{"tm-a"}})
-	v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	v.tab = tabRows
 	v.Update(vertexRowsMsg{}) // polled, nothing printed
 
 	body := v.View(120, 30)
@@ -155,7 +157,7 @@ func TestVertexLiveRendersSafelyAtAnyWidth(t *testing.T) {
 	v.Update(vertexLiveMsg{tms: []string{"tm-a"}})
 	for _, tab := range []int{0, 1} {
 		if tab == 1 {
-			v.Update(tea.KeyMsg{Type: tea.KeyTab})
+			v.tab = tabRows
 			v.Update(vertexRowsMsg{rows: []rowLine{{tm: "tm-a", text: strings.Repeat("wide ", 80)}}, perSec: 1})
 		}
 		for _, w := range []int{60, 80, 200} {
@@ -203,7 +205,7 @@ func TestVertexLiveRowsRecognisesMissingStdoutFile(t *testing.T) {
 
 	v := liveView()
 	v.Update(vertexLiveMsg{tms: []string{"tm-a"}})
-	v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	v.tab = tabRows
 	v.Update(vertexRowsMsg{unavailable: true})
 
 	out := v.View(120, 30)
@@ -214,5 +216,68 @@ func TestVertexLiveRowsRecognisesMissingStdoutFile(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("explanation missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// t / d / e are now shortcuts into the one inspector, on the right tab.
+func TestDrillDownKeysOpenTheInspectorTabs(t *testing.T) {
+	d := detailWithVertices()
+	d.tbl.SetCursor(1)
+	for key, want := range map[string]int{"t": tabSubtasks, "d": tabSkew, "e": tabBuffers} {
+		_, cmd := d.Update(keyMsg(key))
+		if cmd == nil {
+			t.Fatalf("%s produced no command", key)
+		}
+		pm, ok := cmd().(PushMsg)
+		if !ok {
+			t.Fatalf("%s pushed %#v", key, cmd())
+		}
+		live, ok := pm.M.(*VertexLive)
+		if !ok {
+			t.Fatalf("%s pushed %T, want the inspector", key, pm.M)
+		}
+		if live.tab != want {
+			t.Errorf("%s opened tab %d, want %d", key, live.tab, want)
+		}
+		if live.vid != "v-window" {
+			t.Errorf("%s opened %q, want the selected v-window", key, live.vid)
+		}
+	}
+}
+
+func TestInspectorTabsCycleAndRender(t *testing.T) {
+	v := liveView()
+	v.Update(liveMetrics())
+	seen := map[int]bool{}
+	for i := 0; i < tabCount; i++ {
+		seen[v.tab] = true
+		body := v.View(120, 30)
+		if !strings.Contains(body, tabNames[v.tab]) {
+			t.Errorf("tab %d does not show its own name:\n%s", v.tab, body)
+		}
+		v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	if len(seen) != tabCount {
+		t.Fatalf("cycled through %d of %d tabs", len(seen), tabCount)
+	}
+	if v.tab != tabMetrics {
+		t.Fatalf("a full cycle must return to metrics, got %d", v.tab)
+	}
+	v.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if v.tab != tabRows {
+		t.Fatalf("shift+tab must step back to rows, got %d", v.tab)
+	}
+}
+
+// A sub-view's messages must reach it even when another tab is on screen.
+func TestInspectorRoutesSubViewMessages(t *testing.T) {
+	v := liveView()
+	v.tab = tabSubtasks
+	v.sub() // build it
+	v.tab = tabMetrics
+
+	v.Update(subtasksMsg{subs: []model.SubtaskInfo{{Subtask: 0, Status: "RUNNING", TaskManagerID: "tm-a"}}})
+	if v.subtasks == nil || len(v.subtasks.subs) != 1 {
+		t.Fatal("the subtasks tab never received its data")
 	}
 }
