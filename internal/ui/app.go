@@ -150,6 +150,7 @@ type App struct {
 	lastBlast    time.Time      // debounce for blast-radius flashes
 	notify       bool           // OSC 9 desktop notifications on alert open
 	aiPanel      *views.AIPanel // persistent page-aware AI side panel
+	mutating     bool           // blocks context switches and overlapping writes
 	aiOpen       bool           // panel visible (splits the body)
 	aiFocused    bool           // key input routed to the panel
 }
@@ -806,6 +807,7 @@ func (a *App) setFlash(msg string, isErr bool) tea.Cmd {
 
 // startAction fires the confirmed action against the cluster.
 func (a *App) startAction(kind views.ActionKind, jid, name, dir string) tea.Cmd {
+	a.mutating = true
 	cl := a.cl
 	switch kind {
 	case views.ActionSavepoint:
@@ -828,6 +830,7 @@ func (a *App) startAction(kind views.ActionKind, jid, name, dir string) tea.Cmd 
 // startProposal executes a human-confirmed agent proposal via the real
 // tool registry.
 func (a *App) startProposal(msg views.ProposalMsg) tea.Cmd {
+	a.mutating = true
 	reg := a.registry()
 	src := msg.AuditSource()
 	return func() tea.Msg {
@@ -852,6 +855,7 @@ func (a *App) registry() *tools.Registry {
 // startRescale verifies the adaptive-scheduler precondition, then applies
 // FLIP-291 resource requirements.
 func (a *App) startRescale(msg views.RescaleMsg, parallelism int) tea.Cmd {
+	a.mutating = true
 	cl := a.cl
 	return func() tea.Msg {
 		ok, err := cl.AdaptiveScheduler()
@@ -1102,8 +1106,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case views.ActionMsg:
-		if a.op != nil {
-			return a, a.setFlash(fmt.Sprintf("%s on %s still in progress — one operation at a time", verbOf(a.op.kind), a.op.name), true)
+		if a.mutating {
+			return a, a.setFlash("a mutating operation is still in progress — one operation at a time", true)
 		}
 		a.modal = newModal(msg.Kind, msg.JID, msg.Name, a.savepointDir, a.mode())
 		return a, nil
@@ -1119,6 +1123,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(a.setFlash(flashText, isErr), a.runNextInvestigation())
 
 	case views.ProposalMsg:
+		if a.mutating {
+			return a, a.setFlash("a mutating operation is still in progress — one operation at a time", true)
+		}
 		// The proposal path (investigate + ask) is the one mutating flow that
 		// bypasses readOnlyGuard — gate it here so a read-only context can
 		// never execute an AI-proposed action, confirmed or not.
@@ -1133,6 +1140,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case proposalDoneMsg:
+		a.mutating = false
 		res := "ok"
 		if msg.err != nil {
 			res = msg.err.Error()
@@ -1144,6 +1152,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(a.setFlash("applied "+msg.tool+" ✓ — "+msg.output, false), a.top().Refresh())
 
 	case views.RescaleMsg:
+		if a.mutating {
+			return a, a.setFlash("a mutating operation is still in progress — one operation at a time", true)
+		}
 		if a.cfg.Contexts[a.contextName].ReadOnly {
 			return a, a.setFlash("[RO] this context is read-only — rescale disabled", true)
 		}
@@ -1151,6 +1162,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case rescaleDoneMsg:
+		a.mutating = false
 		res := "ok"
 		if msg.err != nil {
 			res = msg.err.Error()
@@ -1175,6 +1187,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.setFlash("plugin "+msg.name+" done", false)
 
 	case views.SwitchContextMsg:
+		if a.mutating {
+			return a, a.setFlash("cannot switch context while a mutating operation is in progress", true)
+		}
 		cctx, ok := a.cfg.Contexts[msg.Name]
 		if !ok {
 			return a, a.setFlash("context "+msg.Name+" not found", true)
@@ -1211,6 +1226,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case triggeredMsg:
 		if msg.err != nil {
+			a.mutating = false
 			return a, a.setFlash(verbOf(msg.kind)+" "+msg.name+": "+msg.err.Error(), true)
 		}
 		op := pendingOp{kind: msg.kind, jid: msg.jid, name: msg.name, reqID: msg.reqID}
@@ -1224,6 +1240,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			cmd := a.setFlash(verbOf(a.op.kind)+" "+a.op.name+": status check failed: "+msg.err.Error(), true)
 			a.op = nil
+			a.mutating = false
 			return a, cmd
 		}
 		if msg.st.Status.ID != "COMPLETED" {
@@ -1231,6 +1248,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		op := *a.op
 		a.op = nil
+		a.mutating = false
 		if msg.st.Failed() {
 			cause := msg.st.Operation.FailureCause.Class
 			if cause == "" {
@@ -1254,6 +1272,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(a.setFlash(verbOf(op.kind)+" "+op.name+" ✓ → "+loc, false), a.top().Refresh())
 
 	case cancelDoneMsg:
+		a.mutating = false
 		res := "ok"
 		if msg.err != nil {
 			res = msg.err.Error()
