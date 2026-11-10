@@ -245,9 +245,10 @@ func (d *JobDetail) backpressureCmds() tea.Cmd {
 		vid := v.ID
 		par := v.Parallelism
 		cmds = append(cmds, func() tea.Msg {
+			level, pct := "", -1
 			bp, err := cl.Backpressure(jid, vid)
-			if err != nil {
-				return backpressureMsg{vid: vid, level: "", pct: -1, busy: -1, inRecs: -1, outRecs: -1}
+			if err == nil {
+				level, pct = bp.Level(), bp.MaxRatioPercent()
 			}
 			busy, err := cl.VertexBusy(jid, vid)
 			if err != nil {
@@ -269,7 +270,7 @@ func (d *JobDetail) backpressureCmds() tea.Cmd {
 			if err != nil {
 				p99, softBP, debloat = -1, -1, -1
 			}
-			return backpressureMsg{vid: vid, level: bp.Level(), pct: bp.MaxRatioPercent(), busy: busy, wm: wm,
+			return backpressureMsg{vid: vid, level: level, pct: pct, busy: busy, wm: wm,
 				recs: recs, inRecs: inRecs, outRecs: outRecs, mboxP99: p99, softBP: softBP, debloat: debloat}
 		})
 	}
