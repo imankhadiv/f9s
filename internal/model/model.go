@@ -64,12 +64,14 @@ type TaskCounts struct {
 
 // JobOverview is one entry of GET /jobs/overview.
 type JobOverview struct {
-	JID       string     `json:"jid"`
-	Name      string     `json:"name"`
-	State     string     `json:"state"`
-	StartTime int64      `json:"start-time"`
-	Duration  int64      `json:"duration"`
-	Tasks     TaskCounts `json:"tasks"`
+	JID           string     `json:"jid"`
+	Name          string     `json:"name"`
+	State         string     `json:"state"`
+	SchedulerType string     `json:"schedulerType"`
+	JobType       string     `json:"jobType"`
+	StartTime     int64      `json:"start-time"`
+	Duration      int64      `json:"duration"`
+	Tasks         TaskCounts `json:"tasks"`
 }
 
 // JobsOverview is GET /jobs/overview.
@@ -117,13 +119,16 @@ type Plan struct {
 
 // Job is GET /jobs/:jid.
 type Job struct {
-	JID          string         `json:"jid"`
-	Name         string         `json:"name"`
-	State        string         `json:"state"`
-	StartTime    int64          `json:"start-time"`
-	Duration     int64          `json:"duration"`
-	Vertices     []Vertex       `json:"vertices"`
-	StatusCounts map[string]int `json:"status-counts"`
+	JID           string         `json:"jid"`
+	ApplicationID string         `json:"application-id"`
+	Name          string         `json:"name"`
+	State         string         `json:"state"`
+	SchedulerType string         `json:"schedulerType"`
+	JobType       string         `json:"job-type"`
+	StartTime     int64          `json:"start-time"`
+	Duration      int64          `json:"duration"`
+	Vertices      []Vertex       `json:"vertices"`
+	StatusCounts  map[string]int `json:"status-counts"`
 }
 
 // Backpressure is GET /jobs/:jid/vertices/:vid/backpressure.

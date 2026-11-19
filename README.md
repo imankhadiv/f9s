@@ -83,6 +83,15 @@ f9s --address http://localhost:8081 --snapshot   # non-interactive, for scripts
 Connection failed? f9s diagnoses instead of stack-tracing — and keeps
 retrying with backoff until the cluster answers.
 
+### Flink compatibility
+
+f9s consumes Flink's monitoring REST API and treats release-specific fields
+as optional. Recorded contract fixtures cover Flink 2.1 and 2.3, so a 2.3
+cluster exposes its application ID, scheduler type, and job type without
+breaking the same job and cluster views on 2.1. Features introduced in 2.3
+are capability-gated from the version returned by `/overview`; unknown
+versions keep the conservative, version-neutral experience.
+
 ## Keybindings
 
 | Key | Action |

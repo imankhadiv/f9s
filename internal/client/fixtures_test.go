@@ -80,9 +80,15 @@ func TestClientAgainstRecordedVersions(t *testing.T) {
 			if err != nil || len(jobs) == 0 || jobs[0].JID == "" || jobs[0].State == "" {
 				t.Fatalf("jobs: %v", err)
 			}
+			if version == "2.3" && (jobs[0].SchedulerType != "Adaptive" || jobs[0].JobType != "STREAMING") {
+				t.Fatalf("flink 2.3 job capabilities lost: %+v", jobs[0])
+			}
 			job, err := cl.Job(jid)
 			if err != nil || len(job.Vertices) == 0 || job.Vertices[0].Name == "" || job.Vertices[0].Parallelism == 0 {
 				t.Fatalf("job: %v %+v", err, job)
+			}
+			if version == "2.3" && (job.ApplicationID == "" || job.SchedulerType != "Adaptive" || job.JobType != "STREAMING") {
+				t.Fatalf("flink 2.3 job detail capabilities lost: %+v", job)
 			}
 			jc, err := cl.JobConfig(jid)
 			if err != nil || jc.ExecutionConfig.RestartStrategy == "" {

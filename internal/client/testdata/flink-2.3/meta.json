@@ -1,0 +1,8 @@
+{
+ "flinkVersion": "2.3.0",
+ "jid": "77b71803f3f70bbd0ff5de33777666d4",
+ "vid": "cbc357ccb763df2852fee8c4fc7d55f2",
+ "tmid": "172.19.0.3:40693-bc23c7",
+ "captured": "2026-11-19",
+ "source": "Flink 2.1 recording adapted to the official Flink 2.3 REST API contract"
+}
