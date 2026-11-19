@@ -86,9 +86,10 @@ retrying with backoff until the cluster answers.
 ### Flink compatibility
 
 f9s consumes Flink's monitoring REST API and treats release-specific fields
-as optional. Recorded contract fixtures cover Flink 2.1 and 2.3, so a 2.3
-cluster exposes its application ID, scheduler type, and job type without
-breaking the same job and cluster views on 2.1. Features introduced in 2.3
+as optional. Contract fixtures cover Flink 2.1 (recorded from a live cluster)
+and 2.3 (built from the official 2.3 REST API spec), so f9s decodes a 2.3
+cluster's application ID, scheduler type, and job type without breaking the
+same job and cluster views on 2.1. Features introduced in 2.3
 are capability-gated from the version returned by `/overview`; unknown
 versions keep the conservative, version-neutral experience.
 
