@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose an improvement grounded in an operator workflow
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Operator problem
+      description: What is difficult today, and who encounters it?
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Desired workflow
+      description: Describe the terminal flow and the outcome, not only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: How do you solve this with Flink, f9s, or other tools today?
+  - type: input
+    id: flink-versions
+    attributes:
+      label: Relevant Flink versions or deployment modes
+      placeholder: Flink 2.3+, Kubernetes Application Mode
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety considerations
+      options:
+        - label: This may add or change a mutating cluster action.
+        - label: This may send cluster data to an external or AI service.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and the roadmap for this request.
+          required: true

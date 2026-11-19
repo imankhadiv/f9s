@@ -415,9 +415,13 @@ context.
 
 ## Contributing
 
-Early days — issues and feedback are very welcome. Please open an issue before
-sending a PR. If you used AI assistance for a contribution, say so in the PR;
-low-effort AI-generated PRs will be closed without review.
+Issues and feedback are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+the development setup and pull-request expectations. Please report suspected
+vulnerabilities privately through the [security policy](SECURITY.md).
+
+If you used AI assistance for a contribution, say so in the PR and verify the
+result yourself; low-effort generated changes without tests or evidence will be
+closed without review.
 
 ## License
 
