@@ -28,20 +28,17 @@ changelog:
     - title: Other
       order: 999
 
-# Uncomment once the homebrew-tap repo exists:
-brews:
-  - repository:
+# Publish the pre-built binary as a cask. GoReleaser's legacy `brews` publisher
+# is deprecated; casks are the supported path for binary distribution.
+homebrew_casks:
+  - name: f9s
+    binaries: [f9s]
+    repository:
       owner: imankhadiv
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    directory: Formula
     homepage: https://github.com/imankhadiv/f9s
     description: "A k9s-style terminal UI for Apache Flink"
-    license: Apache-2.0
-    install: |
-      bin.install "f9s"
-    test: |
-      system "#{bin}/f9s", "--version"
 
 # Supply-chain trust: SBOMs for every archive, keyless cosign signature on
 # the checksums file (verify: cosign verify-blob --certificate checksums.txt.pem

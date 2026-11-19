@@ -48,7 +48,7 @@ that final command.
 - `checksums.txt`, its signature and certificate, and the SBOM artifacts are
   attached.
 - A downloaded binary prints the expected version with `f9s --version`.
-- The Homebrew formula was updated and `brew install imankhadiv/tap/f9s`
+- The Homebrew cask was updated and `brew install imankhadiv/tap/f9s`
   succeeds on a clean machine.
 - Release notes accurately separate features, fixes, and other changes.
 
