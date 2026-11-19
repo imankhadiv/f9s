@@ -51,7 +51,8 @@ func TestLoadToleratesMissingOrCorruptFile(t *testing.T) {
 
 func TestDataPathHonoursXDG(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "/xdg")
-	if got := DataPath("prod"); got != "/xdg/f9s/metrics/prod.json" {
+	want := filepath.Join("/xdg", "f9s", "metrics", "prod.json")
+	if got := DataPath("prod"); got != want {
 		t.Fatalf("DataPath = %s", got)
 	}
 }

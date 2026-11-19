@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var readmeConfigBlock = regexp.MustCompile("(?s)```yaml\n(# ~/.config/f9s/config\\.yaml.*?)```")
+var readmeConfigBlock = regexp.MustCompile("(?s)```yaml\\r?\\n(# ~/.config/f9s/config\\.yaml.*?)```")
 
 // The README's configuration block is meant to be copy-pasted, so it has to
 // parse into the real Config with no keys Config doesn't have — a documented
