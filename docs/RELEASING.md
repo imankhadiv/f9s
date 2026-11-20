@@ -26,17 +26,18 @@ GitHub release. GoReleaser also updates the Homebrew tap.
    ```
 
 4. If GoReleaser, Cosign, and Syft are installed locally, build a non-publishing
-   snapshot and inspect `dist/`:
+   snapshot and inspect `dist/` (`--skip=sign` keeps a local keyless Cosign
+   login from writing your identity to the public transparency log):
 
    ```sh
-   goreleaser release --snapshot --clean
+   goreleaser release --snapshot --clean --skip=sign
    ```
 
 5. Create and push an annotated semantic-version tag from the reviewed commit:
 
    ```sh
-   git tag -a v0.1.0 -m "f9s v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.5.0 -m "f9s v0.5.0"
+   git push origin v0.5.0
    ```
 
 Pushing the tag publishes externally. Check the tag and commit carefully before

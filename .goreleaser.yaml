@@ -39,6 +39,14 @@ homebrew_casks:
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/imankhadiv/f9s
     description: "A k9s-style terminal UI for Apache Flink"
+    # The macOS binary is not notarized; without this, Gatekeeper refuses
+    # the quarantined download on first run.
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/f9s"]
+          end
 
 # Supply-chain trust: SBOMs for every archive, keyless cosign signature on
 # the checksums file (verify: cosign verify-blob --certificate checksums.txt.pem

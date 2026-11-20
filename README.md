@@ -72,7 +72,8 @@ make run       # every detector fires within ~90s: press ! for alerts,
 Against your own cluster:
 
 ```sh
-go install github.com/imankhadiv/f9s/cmd/f9s@latest   # Go 1.27+
+brew install imankhadiv/tap/f9s                      # macOS / Linux
+go install github.com/imankhadiv/f9s/cmd/f9s@latest   # or: Go 1.27+
 f9s init     # optional: writes a commented starter config
 f9s doctor   # lint a cluster for the config smells that page you later
 f9s eval     # score your AI provider on frozen incident scenarios
@@ -415,13 +416,15 @@ context.
 - **v0.1** — ✅ actions + savepoint ledger (done); computed backpressure
   root-cause; restore-from-savepoint picker.
 - **v0.2** — TaskManager views + logs, watermark columns, multi-cluster fleet
-  view, exec-plugin system, Homebrew tap.
+  view, exec-plugin system.
 - **v0.3+** — AI explain (local-first via Ollama, k8sgpt-style analyzers),
   `f9s mcp` server mode, Flink Kubernetes Operator awareness, SQL Gateway console.
 - **Pre-1.0 depth** — ✅ backpressure edge, checkpoint health and per-vertex
   compare, operator tree with guarded CR changes, autoscaler overlay and
   flapping detection, JVM fleet view, persistent metric history.
-- **Next** — Homebrew tap, public launch.
+- **v0.5** — ✅ public launch: Homebrew tap, signed release artifacts, Flink 2.3
+  compatibility contract.
+- **Next** — Flink 2.3 rescale history, first-class Applications view.
 
 ## Contributing
 
