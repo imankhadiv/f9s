@@ -329,12 +329,25 @@ func (a *App) deps() views.Deps {
 // runCommand navigates to the resolved command's view.
 func (a *App) runCommand(cmd string) tea.Cmd {
 	deps := a.deps()
-	jobs := views.NewJobs(deps)
+	// Keep the existing root jobs view: messages only reach the top of the
+	// stack, so a fresh one under the target would never get its first fetch
+	// and esc would land on an empty list. Context switches replace the whole
+	// stack, so the root always belongs to the active context.
+	jobs, fresh := a.stack[0].(*views.Jobs), false
+	if jobs == nil {
+		jobs, fresh = views.NewJobs(deps), true
+	}
+	rootInit := func() tea.Cmd {
+		if fresh {
+			return jobs.Init()
+		}
+		return nil
+	}
 	var target views.Model
 	switch cmd {
 	case "jobs":
 		a.stack = []views.Model{jobs}
-		return tea.Batch(jobs.Init())
+		return jobs.Refresh()
 	case "cluster":
 		target = views.NewCluster(deps)
 	case "tms":
@@ -363,7 +376,7 @@ func (a *App) runCommand(cmd string) tea.Cmd {
 		target = views.NewDoctor(deps)
 	case "ask":
 		a.stack = []views.Model{jobs}
-		return tea.Batch(jobs.Init(), views.AskCluster(deps))
+		return tea.Batch(rootInit(), views.AskCluster(deps))
 	case "pulse":
 		target = views.NewPulse(deps)
 	case "waste":
@@ -390,7 +403,7 @@ func (a *App) runCommand(cmd string) tea.Cmd {
 		return a.setFlash(a.fitFlash("unknown command :"+cmd+"  ("+commandList()+")"), true)
 	}
 	a.stack = []views.Model{jobs, target}
-	return tea.Batch(jobs.Init(), target.Init())
+	return tea.Batch(rootInit(), target.Init())
 }
 
 // globalBindings are the app-level keys appended to every view's own.
