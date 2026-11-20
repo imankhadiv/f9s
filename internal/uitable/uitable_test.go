@@ -134,3 +134,27 @@ func TestFilterMapsCursorToOriginalIndex(t *testing.T) {
 		t.Fatalf("no matches expected, got %d", m.Len())
 	}
 }
+
+// Wide tables must never emit a line wider than the viewport: the frame
+// wraps overlong lines, splitting every row in two (seen on the job-detail
+// vertex table in ~105-column terminals).
+func TestViewNeverExceedsWidth(t *testing.T) {
+	cols := []Column{{Title: "VERTEX", Width: -1}, {Title: "PAR", Width: 4}, {Title: "STATUS", Width: 11},
+		{Title: "BACKPRESSURE", Width: 13}, {Title: "BUSY", Width: 5}, {Title: "WM LAG", Width: 8},
+		{Title: "SKEW", Width: 10}, {Title: "IN/s", Width: 9, Right: true}, {Title: "OUT/s", Width: 9, Right: true}}
+	row := []Cell{Plain("Source: Car data generator"), Plain("1"), Plain("RUNNING"),
+		Styled("● ok 0%", lipgloss.NewStyle().Bold(true)), Plain("0%"), Plain("-"), Plain("-"), Plain("10"), Plain("10")}
+	for _, w := range []int{40, 90, 100, 105, 110, 140} {
+		m := New(cols)
+		m.SetRows([][]Cell{row, row})
+		m.SetSize(w, 6)
+		for i, l := range strings.Split(m.View(), "\n") {
+			if got := lipgloss.Width(l); got > w {
+				t.Fatalf("width %d: line %d is %d cells wide", w, i, got)
+			}
+		}
+		if w >= 100 && !strings.Contains(m.View(), "OUT/s") {
+			t.Fatalf("width %d: OUT/s column was clipped although the flex column could shrink", w)
+		}
+	}
+}

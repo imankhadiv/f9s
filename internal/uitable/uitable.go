@@ -6,6 +6,7 @@
 package uitable
 
 import (
+	"github.com/charmbracelet/x/ansi"
 	"regexp"
 	"strings"
 
@@ -16,6 +17,9 @@ import (
 )
 
 const colGap = 2
+
+// minFlex is the narrowest the flexible column shrinks to before clipping.
+const minFlex = 8
 
 // Column is a table column; Width < 0 marks the one flexible column that
 // absorbs the remaining terminal width. Right right-aligns the column (for
@@ -284,9 +288,12 @@ func (m *Model) resolved() []int {
 		used += c.Width + colGap
 	}
 	if flexIdx >= 0 {
+		// Let the flex column give way before the row overflows: a 20-cell
+		// floor pushed wide tables past ~105-column terminals, and the frame
+		// then wrapped every row onto two lines.
 		w := m.width - used - colGap
-		if w < 20 {
-			w = 20
+		if w < minFlex {
+			w = minFlex
 		}
 		ws[flexIdx] = w
 	}
@@ -368,6 +375,13 @@ func (m *Model) View() string {
 			parts[i] = cells[min(i, len(cells)-1)].Style.Render(fitAlign(cellText(cells, i), ws[i], m.cols[i].Right))
 		}
 		lines = append(lines, " "+strings.Join(parts, gap))
+	}
+	// Still too wide (very narrow terminal): clip rather than wrap, so each
+	// row stays one line and the rightmost columns are what gets cut.
+	if m.width > 0 {
+		for i, l := range lines {
+			lines[i] = ansi.Truncate(l, m.width, "")
+		}
 	}
 	for len(lines) < m.height {
 		lines = append(lines, "")
