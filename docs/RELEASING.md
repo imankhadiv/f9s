@@ -8,8 +8,9 @@ GitHub release. GoReleaser also updates the Homebrew tap.
 
 - The `f9s` repository is public and its default branch is protected.
 - `imankhadiv/homebrew-tap` is public.
-- The `TAP_GITHUB_TOKEN` repository secret can write to the tap and has the
-  smallest practical scope.
+- The `TAP_DEPLOY_KEY` repository secret holds the private half of a
+  read-write deploy key on `imankhadiv/homebrew-tap`; the cask is pushed over
+  SSH and the key can touch nothing but the tap.
 - Private vulnerability reporting is enabled in the repository security
   settings.
 - The license, security policy, contribution guide, and issue forms are visible

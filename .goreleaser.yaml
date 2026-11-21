@@ -36,7 +36,10 @@ homebrew_casks:
     repository:
       owner: imankhadiv
       name: homebrew-tap
-      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+      # Pushed over SSH with a write deploy key scoped to the tap only.
+      git:
+        url: "git@github.com:imankhadiv/homebrew-tap.git"
+        private_key: "{{ .Env.TAP_DEPLOY_KEY }}"
     homepage: https://github.com/imankhadiv/f9s
     description: "A k9s-style terminal UI for Apache Flink"
     # The macOS binary is not notarized; without this, Gatekeeper refuses
