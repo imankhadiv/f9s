@@ -147,8 +147,10 @@ func Panel(title, body string, width int) string {
 // It is safe at any size: below a usable width it degrades to a plain rounded
 // box, and the title/meta drop or truncate before any line can exceed width.
 func TitledPanel(title string, count int, right, body string, width, height int) string {
-	if width < 2 {
-		width = 2
+	// Width(0) means "unset" to lipgloss (no wrapping), so the body would
+	// overflow at width 2; 3 is the smallest box with a non-zero interior.
+	if width < 3 {
+		width = 3
 	}
 	if height < 2 {
 		height = 2
