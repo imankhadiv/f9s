@@ -26,14 +26,14 @@ func fixtureServer(t *testing.T, version string) (*Client, map[string]string) {
 	}
 	jid, vid, tmid := meta["jid"], meta["vid"], meta["tmid"]
 	routes := map[string]string{
-		"/overview":                                               "overview.json",
-		"/jobs/overview":                                          "jobs-overview.json",
-		"/jobs/" + jid:                                            "job.json",
-		"/jobs/" + jid + "/config":                                "job-config.json",
-		"/jobs/" + jid + "/plan":                                  "job-plan.json",
-		"/jobs/" + jid + "/checkpoints":                           "checkpoints.json",
-		"/jobs/" + jid + "/checkpoints/config":                    "checkpoint-config.json",
-		"/jobs/" + jid + "/vertices/" + vid:                       "vertex.json",
+		"/overview":                            "overview.json",
+		"/jobs/overview":                       "jobs-overview.json",
+		"/jobs/" + jid:                         "job.json",
+		"/jobs/" + jid + "/config":             "job-config.json",
+		"/jobs/" + jid + "/plan":               "job-plan.json",
+		"/jobs/" + jid + "/checkpoints":        "checkpoints.json",
+		"/jobs/" + jid + "/checkpoints/config": "checkpoint-config.json",
+		"/jobs/" + jid + "/vertices/" + vid:    "vertex.json",
 		"/jobs/" + jid + "/vertices/" + vid + "/subtasks/metrics": "subtask-metrics.json",
 		"/jobs/" + jid + "/exceptions":                            "exceptions.json",
 		"/taskmanagers":                                           "taskmanagers.json",
